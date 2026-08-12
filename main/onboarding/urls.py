@@ -1,6 +1,9 @@
+# onboarding/urls.py
 from django.urls import path
-from .views import OnboardingView
+from .views import OnboardingQuestionView, OnboardingAnswerView
 
 urlpatterns = [
-    path('', OnboardingView.as_view(), name='onboarding'),
+    path('questions/', OnboardingQuestionView.as_view(), name='onboarding-questions'),
+    
+    path('', OnboardingAnswerView.as_view(), name='onboarding-answers'),
 ]
