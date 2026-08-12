@@ -1,15 +1,5 @@
 from django.db import models
-
-# Create your models here.
-class User(models.Model):
-    id = models.BigAutoField(primary_key=True)
-    guest_uuid = models.CharField(max_length=255, unique=True)
-    nickname = models.CharField(max_length=255, null=True, blank=True)
-    total_minutes = models.IntegerField(default=0)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = 'users'
+from accounts.models import User
 
 class UserProfile(models.Model):
     id = models.BigAutoField(primary_key=True)
