@@ -6,6 +6,7 @@ class User(models.Model):
     guest_uuid = models.CharField(max_length=255, unique=True)
     nickname = models.CharField(max_length=255, null=True, blank=True)
     total_minutes = models.IntegerField(default=0)
+    target_minutes = models.IntegerField(default=30)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
