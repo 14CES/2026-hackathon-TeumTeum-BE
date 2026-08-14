@@ -120,3 +120,61 @@ def select_best_contents(
                     return best_combination
 
     return best_combination
+
+
+def allocate_content_minutes(contents, target_minutes):
+        """
+        선택된 콘텐츠에 최종 시간을 배분한다.
+
+        - YouTube: 실제 영상 길이를 유지
+        - 기사: YouTube를 제외한 남은 시간을 균등 배분
+        - 기사끼리 나누어 떨어지지 않으면 앞쪽 기사에 1분씩 추가
+        """
+
+        youtube_contents = []
+        article_contents = []
+
+        for content in contents:
+            if "source" in content:
+                article_contents.append(content)
+            else:
+                youtube_contents.append(content)
+
+        # YouTube 실제 영상 시간 합계
+        youtube_minutes = sum(
+            content.get("estimated_minutes", 0)
+            for content in youtube_contents
+        )
+
+        # YouTube만으로 이미 목표 시간을 초과하면 배분 불가능
+        if youtube_minutes > target_minutes:
+            return None
+
+        # 기사에 배분할 시간
+        remaining_minutes = target_minutes - youtube_minutes
+
+        # 기사 없이 YouTube만 있는 경우
+        if not article_contents:
+            return contents
+
+        # 기사 수보다 남은 시간이 적으면
+        # 각 기사에 최소 1분을 줄 수 없으므로 실패
+        if remaining_minutes < len(article_contents):
+            return None
+
+        # 기사별 기본 시간
+        base_minutes = remaining_minutes // len(article_contents)
+
+        # 나머지 1분
+        remainder = remaining_minutes % len(article_contents)
+
+        # 기사 시간 배분
+        for index, content in enumerate(article_contents):
+            allocated_minutes = base_minutes
+
+            if index < remainder:
+                allocated_minutes += 1
+
+            content["estimated_minutes"] = allocated_minutes
+
+        return contents    

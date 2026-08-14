@@ -75,6 +75,7 @@ class CourseContent(models.Model):
     content_type = models.CharField(max_length=50)
     title = models.CharField(max_length=255)
     description = models.TextField()
+    content = models.TextField(null=True, blank=True)
 
     source = models.CharField(max_length=255, null=True, blank=True)
     content_url = models.URLField(null=True, blank=True)

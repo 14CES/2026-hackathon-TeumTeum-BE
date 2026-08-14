@@ -162,7 +162,13 @@ class CourseContentSerializer(serializers.ModelSerializer):
             "content_type",
             "title",
             "description",
+            "content",
+            "source",
+            "content_url",
+            "image_url",
+            "video_url",
             "thumbnail_url",
+            "channel_name",
             "estimated_minutes",
         ]
 

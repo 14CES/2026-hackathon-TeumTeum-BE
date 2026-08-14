@@ -27,8 +27,8 @@ from rest_framework.response import Response
 
 from services.news import get_news
 from services.youtube import search_youtube
-from services.openai_service import (get_user_context, get_recommended_contents)
-from services.course import select_best_contents
+from services.openai_service import get_user_context, get_recommended_contents, summarize_content
+from services.course import select_best_contents, allocate_content_minutes
 
 from accounts.models import User
 from onboarding.models import UserProfile
@@ -242,12 +242,20 @@ class CourseViewSet(viewsets.ViewSet):
             # 읽기 콘텐츠
             if "source" in content:
 
+                article_content = content.get("content") or ""
+
+                article_content = summarize_content(
+                    article_content,
+                    content["estimated_minutes"],
+                )
+
                 CourseContent.objects.create(
                     course=course,
                     content_order=index,
                     content_type="article",
                     title=content["title"],
                     description=content.get("description") or "",
+                    content=article_content,
                     source=content.get("source"),
                     content_url=content.get("url"),
                     image_url=content.get("image_url"),
@@ -460,12 +468,20 @@ class CourseViewSet(viewsets.ViewSet):
 
             if "source" in content:
 
+                article_content = content.get("content") or ""
+
+                article_content = summarize_content(
+                    article_content,
+                    content["estimated_minutes"],
+                )
+
                 CourseContent.objects.create(
                     course=course,
                     content_order=index,
                     content_type="article",
                     title=content["title"],
                     description=content.get("description") or "",
+                    content=article_content,
                     source=content.get("source"),
                     content_url=content.get("url"),
                     image_url=content.get("image_url"),

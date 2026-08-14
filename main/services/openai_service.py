@@ -195,6 +195,7 @@ def generate_search_query(
     result = result.split()[0]
 
     return result
+    
 
 
 def generate_user_search_queries(user):
@@ -231,6 +232,52 @@ def generate_user_search_queries(user):
         queries[content_type] = query
 
     return queries
+
+
+def summarize_content(text, estimated_minutes):
+    """
+    기사 본문을 예상 읽기 시간에 맞는 분량으로 요약한다.
+    1분당 400자를 기준으로 한다.
+    """
+
+    target_chars = estimated_minutes * 400
+
+    # 이미 목표 분량 이하라면 요약하지 않음
+    if len(text) <= target_chars:
+        return text
+
+    prompt = f"""
+    너는 짧은 틈 시간에 읽을 수 있도록 기사 내용을 요약하는 역할을 한다.
+
+    [기사 원문]
+    {text}
+
+    [목표 읽기 시간]
+    약 {estimated_minutes}분
+
+    [목표 분량]
+    약 {target_chars}자
+
+    [작업]
+    반드시 목표 글자 수에 최대한 가깝게 작성한다.
+    최소 {int(target_chars * 0.8)}자 이상, 최대 {int(target_chars * 1.2)}자 이하를 목표로 한다.
+
+    기사의 핵심 사실, 주요 주장, 중요한 수치와 맥락을 유지한다.
+    불필요한 반복이나 장황한 표현만 제거한다.
+    내용을 지나치게 압축하지 않는다.
+
+    [출력 규칙]
+    요약된 본문만 출력한다.
+    제목이나 설명을 추가하지 않는다.
+    마크다운을 사용하지 않는다.
+    """
+
+    response = client.responses.create(
+        model="gpt-5-mini",
+        input=prompt
+    )
+
+    return response.output_text.strip()
 
 
 def get_recommended_contents(user):

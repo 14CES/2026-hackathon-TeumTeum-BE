@@ -26,7 +26,10 @@ def get_news(query, max_results=5):
         content = item.get("content") or ""
 
         # content가 있으면 content 기준, 없으면 description 기준
-        text = content if content else description
+        if content == "ONLY AVAILABLE IN PAID PLANS":
+            text = description
+        else:
+            text = content if content else description
 
         # 1분당 400자 기준, 최소 1분
         estimated_minutes = max(
@@ -37,6 +40,7 @@ def get_news(query, max_results=5):
         news_list.append({
             "title": item.get("title"),
             "description": description,
+            "content": text,
             "source": item.get("source_name"),
             "url": item.get("link"),
             "image_url": item.get("image_url"),
