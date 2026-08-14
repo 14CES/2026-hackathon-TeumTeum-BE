@@ -1,6 +1,18 @@
 from django.db import models
 from accounts.models import User
 
+class TimeSetting(models.Model):
+    step = models.IntegerField(unique=True)
+    title = models.CharField(max_length=255)
+    description = models.CharField(max_length=255)
+    min_minutes = models.IntegerField()
+    max_minutes = models.IntegerField()
+
+    class Meta:
+        db_table = "time_settings"
+
+    def __str__(self):
+        return self.title
 
 class Question(models.Model):
     question_id = models.IntegerField(unique=True)

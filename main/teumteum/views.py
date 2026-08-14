@@ -2,7 +2,7 @@ from django.shortcuts import render
 
 # Create your views here.
 from .serializers import MainGETSerializer, MainSerializer, MainAnswerSerializer, QuestionSerializer
-from .models import Question, Option,MainAnswer
+from .models import TimeSetting, Question, Option, MainAnswer
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view
@@ -30,10 +30,17 @@ class MainViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        time_setting = TimeSetting.objects.get(step=0)
+
         return Response(
             {
-                "guest_uuid": str(user.guest_uuid),
-                "target_minutes": user.target_minutes
+                "step": time_setting.step,
+                "title": time_setting.title,
+                "description": time_setting.description,
+                "guest_uuid": user.guest_uuid,
+                "target_minutes": user.target_minutes,
+                "min_minutes": time_setting.min_minutes,
+                "max_minutes": time_setting.max_minutes
             },
             status=status.HTTP_200_OK
         )
