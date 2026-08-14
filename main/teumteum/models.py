@@ -49,3 +49,45 @@ class MainAnswer(models.Model):
 
     class Meta:
         db_table = "main_answers"
+
+
+
+class Course(models.Model):
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="courses")
+    title = models.CharField(max_length=255)
+    description = models.CharField(max_length=255)
+    total_minutes = models.IntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "courses"
+
+    def __str__(self):
+        return self.title
+
+
+
+class CourseContent(models.Model):
+
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="contents")
+    content_order = models.IntegerField()
+    content_type = models.CharField(max_length=50)
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+
+    source = models.CharField(max_length=255, null=True, blank=True)
+    content_url = models.URLField(null=True, blank=True)
+    image_url = models.URLField(null=True, blank=True)
+
+    video_url = models.URLField(null=True, blank=True)
+    thumbnail_url = models.URLField(null=True, blank=True)
+    channel_name = models.CharField(max_length=255, null=True, blank=True)
+
+    estimated_minutes = models.IntegerField()
+
+    class Meta:
+        db_table = "course_contents"
+
+    def __str__(self):
+        return self.title

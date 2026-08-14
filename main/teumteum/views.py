@@ -1,8 +1,22 @@
 from django.shortcuts import render
 
 # Create your views here.
-from .serializers import MainGETSerializer, MainSerializer, MainAnswerSerializer, QuestionSerializer
-from .models import TimeSetting, Question, Option, MainAnswer
+from .serializers import (
+    MainGETSerializer,
+    MainSerializer,
+    MainAnswerSerializer,
+    QuestionSerializer,
+    CourseSerializer,
+)
+
+from .models import (
+    TimeSetting,
+    Question,
+    Option,
+    MainAnswer,
+    Course,
+    CourseContent,
+)
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view
@@ -12,6 +26,7 @@ from services.news import get_news
 from services.youtube import search_youtube
 
 from accounts.models import User
+from onboarding.models import UserProfile
 
 class MainViewSet(viewsets.ViewSet):
 
@@ -149,3 +164,6 @@ class MainQuestionViewSet(viewsets.ViewSet):
             },
             status=status.HTTP_200_OK
         )
+
+
+
