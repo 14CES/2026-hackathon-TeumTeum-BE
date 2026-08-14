@@ -20,6 +20,7 @@ def get_news(query, max_results=5):
 
     news_list = []
 
+
     for item in data.get("results", [])[:max_results]:
         description = item.get("description") or ""
         content = item.get("content") or ""

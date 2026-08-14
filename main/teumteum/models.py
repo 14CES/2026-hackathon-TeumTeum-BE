@@ -91,3 +91,17 @@ class CourseContent(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class CourseExecution(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="course_executions")
+    course = models.ForeignKey(Course, on_delete=models.CASCADE,related_name="executions")
+    target_minutes = models.IntegerField()
+    started_at = models.DateTimeField()
+    status = models.CharField(max_length=30, default="in_progress")
+
+    class Meta:
+        db_table = "course_executions"
+
+    def __str__(self):
+        return f"{self.user} - {self.course}"

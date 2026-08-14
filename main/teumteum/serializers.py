@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Question, Option, Course, CourseContent
+from .models import Question, Option, Course, CourseContent, CourseExecution
 
 class MainGETSerializer(serializers.Serializer):
     guest_uuid = serializers.UUIDField(
@@ -179,4 +179,19 @@ class CourseSerializer(serializers.ModelSerializer):
             "description",
             "total_minutes",
             "contents",
+        ]
+
+
+class CourseExecutionSerializer(serializers.ModelSerializer):
+    execution_id = serializers.IntegerField(source="id")
+    course_id = serializers.IntegerField(source="course.id")
+
+    class Meta:
+        model = CourseExecution
+        fields = [
+            "execution_id",
+            "course_id",
+            "target_minutes",
+            "started_at",
+            "status",
         ]
