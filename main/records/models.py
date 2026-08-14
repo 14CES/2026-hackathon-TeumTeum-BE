@@ -25,3 +25,15 @@ class Record(models.Model):
 
     class Meta:
         db_table = 'records'
+
+class RecordContent(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    record = models.ForeignKey(Record, on_delete=models.CASCADE, related_name='contents')
+    sequence = models.IntegerField()  # order(순서)로 매핑될 필드
+    content_type = models.CharField(max_length=50)  # 'youtube', 'magazine' 등
+    title = models.CharField(max_length=255)
+    url = models.CharField(max_length=255)  # content_url로 매핑될 필드
+
+    class Meta:
+        db_table = 'record_contents'
+        ordering = ['sequence']
