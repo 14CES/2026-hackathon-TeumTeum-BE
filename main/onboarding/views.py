@@ -4,7 +4,6 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from .serializers import OnboardingAnswerSerializer
 
-# 1. 온보딩 질문 목록 조회 API (GET /onboarding/questions/)
 class OnboardingQuestionView(APIView):
     permission_classes = [AllowAny]
 
@@ -14,33 +13,37 @@ class OnboardingQuestionView(APIView):
                 {
                     "order": 1,
                     "question_id": 1,
-                    "question": "요즘 가장 정비하고 싶은 틈은 어디인가요?",
+                    "question": "관심 카테고리를 선택해주세요.",
+                    "description": "코스 추천에 활용돼요. (중복 선택 가능)",
                     "options": [
-                        {"option_id": 1, "content": "마음-틈"},
-                        {"option_id": 2, "content": "몸-틈"},
-                        {"option_id": 3, "content": "준비-틈"}
+                        {"option_id": 1, "content": "독서"},
+                        {"option_id": 2, "content": "듣기"},
+                        {"option_id": 3, "content": "스트레칭"},
+                        {"option_id": 4, "content": "마인드컨트롤"}
                     ]
                 },
                 {
                     "order": 2,
                     "question_id": 2,
                     "question": "보통 어떤 순간에 '틈'이 찾아오나요?",
+                    "description": "자주 마주치는 공백시간 상황을 알려주세요. (복수 선택 가능)",
                     "options": [
-                        {"option_id": 4, "content": "이동할 때"},
-                        {"option_id": 5, "content": "약속 전에"},
-                        {"option_id": 6, "content": "휴식할 때"},
-                        {"option_id": 7, "content": "업무 및 공부 중에"}
+                        {"option_id": 5, "content": "이동할 때"},
+                        {"option_id": 6, "content": "약속 전에"},
+                        {"option_id": 7, "content": "휴식할 때"},
+                        {"option_id": 8, "content": "업무 중에"}
                     ]
                 },
                 {
                     "order": 3,
                     "question_id": 3,
                     "question": "요즘 어떤 주제에 마음이 가시나요?",
+                    "description": "가장 흥미로운 주제 3가지를 선택해 주세요!",
                     "options": [
-                        {"option_id": 8, "content": "트렌드·이슈"},
-                        {"option_id": 9, "content": "멘탈 케어"},
-                        {"option_id": 10, "content": "건강"},
-                        {"option_id": 11, "content": "휴식"}
+                        {"option_id": 9, "content": "트렌드 토픽"},
+                        {"option_id": 10, "content": "멘탈 케어"},
+                        {"option_id": 11, "content": "운동"},
+                        {"option_id": 12, "content": "휴식"}
                     ]
                 }
             ]
@@ -48,9 +51,8 @@ class OnboardingQuestionView(APIView):
         return Response(data, status=status.HTTP_200_OK)
 
 
-# 2. 온보딩 답변 제출 API (POST /onboarding/)
 class OnboardingAnswerView(APIView):
-    permission_classes = [IsAuthenticated] # X-Guest-ID 헤더 검증
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = OnboardingAnswerSerializer(data=request.data)
