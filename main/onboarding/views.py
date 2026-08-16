@@ -14,11 +14,12 @@ class OnboardingQuestionView(APIView):
                 {
                     "order": 1,
                     "question_id": 1,
-                    "question": "요즘 가장 정비하고 싶은 틈은 어디인가요?",
+                    "question": "평소 관심 있는 회복 방식은 무엇인가요?",
                     "options": [
-                        {"option_id": 1, "content": "마음-틈"},
-                        {"option_id": 2, "content": "몸-틈"},
-                        {"option_id": 3, "content": "준비-틈"}
+                        {"option_id": 1, "content": "읽기"},
+                        {"option_id": 2, "content": "듣기"},
+                        {"option_id": 3, "content": "스트레칭"},
+                        {"option_id": 4, "content": "마음 정리"}
                     ]
                 },
                 {
@@ -26,21 +27,21 @@ class OnboardingQuestionView(APIView):
                     "question_id": 2,
                     "question": "보통 어떤 순간에 '틈'이 찾아오나요?",
                     "options": [
-                        {"option_id": 4, "content": "이동할 때"},
-                        {"option_id": 5, "content": "약속 전에"},
-                        {"option_id": 6, "content": "휴식할 때"},
-                        {"option_id": 7, "content": "업무 및 공부 중에"}
+                        {"option_id": 5, "content": "이동 중"},
+                        {"option_id": 6, "content": "약속 전"},
+                        {"option_id": 7, "content": "휴식 중"},
+                        {"option_id": 8, "content": "업무·수업 중"}
                     ]
                 },
                 {
                     "order": 3,
                     "question_id": 3,
-                    "question": "요즘 어떤 주제에 마음이 가시나요?",
+                    "question": "요즘 어떤 웰니스에 마음이 가시나요?",
                     "options": [
-                        {"option_id": 8, "content": "트렌드·이슈"},
-                        {"option_id": 9, "content": "멘탈 케어"},
-                        {"option_id": 10, "content": "건강"},
-                        {"option_id": 11, "content": "휴식"}
+                        {"option_id": 9, "content": "피부"},
+                        {"option_id": 10, "content": "몸"},
+                        {"option_id": 11, "content": "마음"},
+                        {"option_id": 12, "content": "수면"}
                     ]
                 }
             ]

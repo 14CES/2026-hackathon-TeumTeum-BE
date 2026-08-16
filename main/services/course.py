@@ -5,7 +5,7 @@ import random
 YOUTUBE_CONTENT_TYPES = {
     "듣기",
     "스트레칭",
-    "마인드컨트롤",
+    "마음 정리",
 }
 
 
@@ -16,24 +16,24 @@ def select_best_contents(
     target_minutes
 ):
     """
-    사용자가 선택한 콘텐츠 유형에 따라
+    사용자가 선택한 회복 방식(읽기/듣기/스트레칭/마음 정리)에 따라
     최종 콘텐츠 3개의 구성 비율을 결정하고,
     target_minutes에 가장 가까운 조합을 선택한다.
 
-    독서만
-    -> 읽기 3개 + 유튜브 0개
+    읽기만
+    -> 기사 3개 + 유튜브 0개
 
-    독서 + 유튜브 1개
-    -> 읽기 2개 + 유튜브 1개
+    읽기 + 유튜브 계열 1개
+    -> 기사 2개 + 유튜브 1개
 
-    독서 + 유튜브 2개 이상
-    -> 읽기 1개 + 유튜브 2개
+    읽기 + 유튜브 계열 2개 이상
+    -> 기사 1개 + 유튜브 2개
 
-    독서 없이 유튜브만
-    -> 읽기 0개 + 유튜브 3개
+    읽기 없이 유튜브 계열만
+    -> 기사 0개 + 유튜브 3개
     """
 
-    has_reading = "독서" in content_types
+    has_reading = "읽기" in content_types
 
     youtube_type_count = sum(
         content_type in YOUTUBE_CONTENT_TYPES
@@ -43,22 +43,22 @@ def select_best_contents(
     # 콘텐츠 비율 결정
     if has_reading:
         if youtube_type_count == 0:
-            # 독서만
+            # 읽기만
             news_count = 3
             youtube_count = 0
 
         elif youtube_type_count == 1:
-            # 독서 + 듣기 / 스트레칭 / 마인드컨트롤 중 1개
+            # 읽기 + 듣기 / 스트레칭 / 마음 정리 중 1개
             news_count = 2
             youtube_count = 1
 
         else:
-            # 독서 + 유튜브 계열 2개 이상
+            # 읽기 + 유튜브 계열 2개 이상
             news_count = 1
             youtube_count = 2
 
     else:
-        # 독서 없이 듣기 / 스트레칭 / 마인드컨트롤
+        # 읽기 없이 듣기 / 스트레칭 / 마음 정리
         news_count = 0
         youtube_count = 3
 
@@ -209,4 +209,43 @@ def allocate_content_minutes(contents, target_minutes):
 
             content["estimated_minutes"] = allocated_minutes
 
-        return contents    
+        return contents
+
+
+def select_activity_module(current_state, situation, remaining_minutes, exclude_ids=None):
+    """
+    현재 상태·장소·남은 시간에 맞는 활동 모듈 템플릿(호흡/스트레칭/마음정리/피부체크)을
+    하나 선택한다. current_state와 겹치는 태그가 많은 템플릿을 우선하고,
+    동점이면 무작위로 고른다. 맞는 템플릿이 없으면 None을 반환한다.
+    """
+
+    from teumteum.models import ActivityModuleTemplate
+
+    exclude_ids = exclude_ids or []
+
+    candidates = ActivityModuleTemplate.objects.filter(
+        is_active=True,
+        estimated_minutes__lte=remaining_minutes,
+    ).exclude(id__in=exclude_ids)
+
+    scored = []
+
+    for template in candidates:
+
+        # 장소 제한이 있는데 현재 장소가 해당되지 않으면 제외
+        if template.allowed_contexts and situation not in template.allowed_contexts:
+            continue
+
+        tag_matches = len(set(template.tags) & set(current_state))
+        scored.append((tag_matches, template))
+
+    if not scored:
+        return None
+
+    best_score = max(score for score, _ in scored)
+    best_templates = [
+        template for score, template in scored
+        if score == best_score
+    ]
+
+    return random.choice(best_templates)

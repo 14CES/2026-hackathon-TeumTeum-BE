@@ -5,9 +5,9 @@ from .models import UserProfile
 
 # 실제 UI 기반 질문별 option_id 매핑 테이블
 ONBOARDING_DATA = {
-    1: [1, 2, 3],       # 마음-틈, 몸-틈, 준비-틈
-    2: [4, 5, 6, 7],    # 이동할 때, 약속 전에, 휴식할 때, 업무 및 공부 중에
-    3: [8, 9, 10, 11]   # 트렌드·이슈, 멘탈 케어, 건강, 휴식
+    1: [1, 2, 3, 4],     # 읽기, 듣기, 스트레칭, 마음 정리
+    2: [5, 6, 7, 8],     # 이동 중, 약속 전, 휴식 중, 업무·수업 중
+    3: [9, 10, 11, 12]   # 피부, 몸, 마음, 수면
 }
 
 ALL_OPTION_IDS = {opt for opts in ONBOARDING_DATA.values() for opt in opts}
@@ -67,7 +67,7 @@ class OnboardingAnswerSerializer(serializers.Serializer):
         # 답변 데이터 정돈 후 DB 저장 (user_profiles의 status, preferred_type에 매핑)
         answers_dict = {ans['question_id']: ans['option_ids'] for ans in answers}
 
-        # 질문 2: 상황(status) / 질문 1 & 3: 카테고리 및 관심사(preferred_type)
+        # 질문 2: 자주 생기는 틈(status) / 질문 1: 관심 콘텐츠, 질문 3: 관심 웰니스(preferred_type)
         status_data = answers_dict.get(2, [])
         preferred_data = {
             "categories": answers_dict.get(1, []),

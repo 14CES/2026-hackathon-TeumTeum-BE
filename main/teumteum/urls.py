@@ -18,4 +18,8 @@ urlpatterns = [
     path("main/teumteum/<int:course_id>", CourseViewSet.as_view({"post": "execute"}), name="course-execute"),
     path("main/teumteum/refresh", CourseViewSet.as_view({"post": "refresh"}), name="course-refresh"),
     path("", include(default_router.urls)),
+    path("main/teumteum/<int:execution_id>/pause", CourseViewSet.as_view({"post": "pause"}), name="course-pause"),
+    path("main/teumteum/<int:execution_id>/resume", CourseViewSet.as_view({"post": "resume"}), name="course-resume"),
+    path("main/teumteum/<int:execution_id>/stop", CourseViewSet.as_view({"post": "stop"})),
+    path("main/teumteum/<int:execution_id>/complete", CourseViewSet.as_view({"post": "complete"}), name="course-complete"),
 ] + static(settings.MEDIA_URL, document_root = settings.MEDIA_ROOT)

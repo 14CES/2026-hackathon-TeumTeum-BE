@@ -15,23 +15,24 @@ client = OpenAI(
 
 
 ONBOARDING_CATEGORY_MAP = {
-    1: "마음-틈",
-    2: "몸-틈",
-    3: "준비-틈",
+    1: "읽기",
+    2: "듣기",
+    3: "스트레칭",
+    4: "마음 정리",
 }
 
 ONBOARDING_STATUS_MAP = {
-    4: "이동할 때",
-    5: "약속 전에",
-    6: "휴식할 때",
-    7: "업무 및 공부 중에",
+    5: "이동 중",
+    6: "약속 전",
+    7: "휴식 중",
+    8: "업무·수업 중",
 }
 
 ONBOARDING_TOPIC_MAP = {
-    8: "트렌드·이슈",
-    9: "멘탈 케어",
-    10: "건강",
-    11: "휴식",
+    9: "피부",
+    10: "몸",
+    11: "마음",
+    12: "수면",
 }
 
 
@@ -82,15 +83,33 @@ def get_user_context(user):
             "main_situation": None,
             "other_content": None,
             "content_types": [],
+            "next_schedule": None,
+            "next_schedule_other_content": None,
+            "current_state": [],
             "target_minutes": user.target_minutes,
         }
 
-    # 1번 메인 질문 답변
+    # 1번 질문 답변: 장소
     main_situation = main_answer.situation_option.content
 
-    # 2번 메인 질문 답변들
+    # 2번 질문 답변: 회복 방식
     content_types = list(
         main_answer.preferred_options.values_list(
+            "content",
+            flat=True
+        )
+    )
+
+    # 3번 질문 답변: 다음 일정
+    next_schedule = (
+        main_answer.next_schedule_option.content
+        if main_answer.next_schedule_option
+        else None
+    )
+
+    # 4번 질문 답변: 현재 상태
+    current_state = list(
+        main_answer.current_state_options.values_list(
             "content",
             flat=True
         )
@@ -103,26 +122,41 @@ def get_user_context(user):
         "main_situation": main_situation,
         "other_content": main_answer.other_content,
         "content_types": content_types,
+        "next_schedule": next_schedule,
+        "next_schedule_other_content": main_answer.next_schedule_other_content,
+        "current_state": current_state,
         "target_minutes": user.target_minutes,
     }
 
 
 def generate_search_queries(
     situation,
+    next_schedule,
+    current_state,
     interests,
+    onboarding_status,
     content_type,
     search_target,
     target_minutes
 ):
     prompt = f"""
-너는 사용자의 취향에 맞는 콘텐츠를 찾기 위한
+너는 사용자의 취향과 지금 상황에 맞는 콘텐츠를 찾기 위한
 검색 API용 검색어를 생성하는 역할이다.
 
-[사용자 상황]
+[사용자가 있는 장소]
 {situation}
 
-[사용자 관심사]
-{", ".join(interests)}
+[다음 일정]
+{next_schedule or "정보 없음"}
+
+[현재 몸·마음 상태]
+{", ".join(current_state) if current_state else "정보 없음"}
+
+[사용자 관심사 (온보딩에서 선택)]
+{", ".join(interests) if interests else "정보 없음"}
+
+[평소 틈이 자주 생기는 순간 (온보딩에서 선택)]
+{", ".join(onboarding_status) if onboarding_status else "정보 없음"}
 
 [사용자가 선택한 콘텐츠 유형]
 {content_type}
@@ -134,8 +168,13 @@ def generate_search_queries(
 약 {target_minutes}분
 
 [작업]
-사용자의 관심사와 상황을 참고하여
+사용자의 관심사, 현재 상태, 다음 일정, 장소를 종합적으로 참고하여
 검색 API에 사용할 수 있는 한국어 검색어를 5개 만들어라.
+
+특히 [현재 몸·마음 상태]와 [다음 일정]을 우선적으로 반영한다.
+예를 들어 "피곤해요"가 포함되면 피로 회복·에너지 충전 관련 키워드를,
+"몸이 뻐근해요"가 포함되면 스트레칭·이완 관련 키워드를,
+"긴장돼요"나 다음 일정이 "약속"이면 마음을 편안하게 하는 키워드를 우선 고려한다.
 
 각 검색어는 서로 다른 주제이지만
 사용자의 관심사와 관련되어야 한다.
@@ -213,18 +252,29 @@ def generate_user_search_queries(user):
     if context["other_content"]:
         situation = context["other_content"]
 
+    next_schedule = context["next_schedule"]
+
+    if context["next_schedule_other_content"]:
+        next_schedule = context["next_schedule_other_content"]
+
+    current_state = context["current_state"]
+    onboarding_status = context["onboarding_status"]
+
     queries = {}
 
     for content_type in context["content_types"]:
 
-        if content_type == "독서":
+        if content_type == "읽기":
             search_target = "읽기 콘텐츠"
         else:
             search_target = "유튜브"
 
         search_queries = generate_search_queries(
             situation=situation,
+            next_schedule=next_schedule,
+            current_state=current_state,
             interests=interests,
+            onboarding_status=onboarding_status,
             content_type=content_type,
             search_target=search_target,
             target_minutes=context["target_minutes"]
@@ -331,7 +381,7 @@ def get_recommended_contents(user):
 
         for query in search_queries:
 
-            if content_type == "독서":
+            if content_type == "읽기":
 
                 results = get_news(query, max_results=5)
 
@@ -353,7 +403,7 @@ def get_recommended_contents(user):
             elif content_type in [
                 "듣기",
                 "스트레칭",
-                "마인드컨트롤"
+                "마음 정리"
             ]:
 
                 results = search_youtube(query, max_results=5)

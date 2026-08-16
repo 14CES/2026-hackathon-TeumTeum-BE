@@ -129,37 +129,63 @@ class MainQuestionViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # 1번 질문 답변
-        first_answer = next(
+        # 1번 질문 답변: 장소
+        place_answer = next(
             answer for answer in answers
             if answer.get("question_id") == 1
         )
 
-        # 2번 질문 답변
-        second_answer = next(
+        # 2번 질문 답변: 회복 방식
+        recovery_answer = next(
             answer for answer in answers
             if answer.get("question_id") == 2
         )
 
-        # 1번 질문 선택지 찾기
+        # 3번 질문 답변: 다음 일정
+        next_schedule_answer = next(
+            answer for answer in answers
+            if answer.get("question_id") == 3
+        )
+
+        # 4번 질문 답변: 현재 상태
+        state_answer = next(
+            answer for answer in answers
+            if answer.get("question_id") == 4
+        )
+
+        # 선택지 찾기
         situation_option = Option.objects.get(
-            option_id=first_answer["option_id"]
+            option_id=place_answer["option_id"]
+        )
+
+        next_schedule_option = Option.objects.get(
+            option_id=next_schedule_answer["option_id"]
         )
 
         # MainAnswer 먼저 생성
         main_answer = MainAnswer.objects.create(
             user=user,
             situation_option=situation_option,
-            other_content=first_answer.get("other_content")
+            other_content=place_answer.get("other_content"),
+            next_schedule_option=next_schedule_option,
+            next_schedule_other_content=next_schedule_answer.get("other_content"),
         )
 
         # 2번 질문 선택지들 찾기
         preferred_options = Option.objects.filter(
-            option_id__in=second_answer["option_ids"]
+            option_id__in=recovery_answer["option_ids"]
         )
 
         # ManyToMany 연결
         main_answer.preferred_options.set(preferred_options)
+
+        # 4번 질문 선택지들 찾기
+        current_state_options = Option.objects.filter(
+            option_id__in=state_answer["option_ids"]
+        )
+
+        # ManyToMany 연결
+        main_answer.current_state_options.set(current_state_options)
 
         return Response(
             {
@@ -371,8 +397,8 @@ class CourseViewSet(viewsets.ViewSet):
             status="in_progress",
         )
 
-        # 6. 실행 시작 시점의 남은 시간
-        remaining_seconds = course.total_minutes * 60
+        # 6. 실행 시작 시점의 남은 시간 (초 단위)
+        remaining_seconds = execution.target_seconds
 
         # 7. Serializer
         execution_serializer = CourseExecutionSerializer(execution)
@@ -393,6 +419,262 @@ class CourseViewSet(viewsets.ViewSet):
             status=status.HTTP_201_CREATED
         )
 
+
+    # POST /main/teumteum/execution/{execution_id}/pause
+    def pause(self, request, execution_id=None):
+
+        # 1. guest_uuid 검증
+        serializer = MainGETSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        guest_uuid = serializer.validated_data["guest_uuid"]
+
+        # 2. 사용자 조회
+        try:
+            user = User.objects.get(guest_uuid=guest_uuid)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "사용자 정보를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 3. 실행 기록 조회
+        try:
+            execution = CourseExecution.objects.get(
+                id=execution_id,
+                user=user
+            )
+        except CourseExecution.DoesNotExist:
+            return Response(
+                {"detail": "실행 중인 코스를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 4. 실행 중인지 확인
+        if execution.status != "in_progress":
+            return Response(
+                {"detail": "현재 실행 중인 코스가 아닙니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 5. 이번 실행 시간 계산 (초 단위)
+        now = timezone.now()
+
+        elapsed_seconds = round(
+            (now - execution.started_at).total_seconds()
+        )
+
+        # 6. 기존 사용 시간에 누적
+        execution.used_seconds += elapsed_seconds
+
+        # 7. 최대 설정 시간 초과 방지
+        if execution.used_seconds > execution.target_seconds:
+            execution.used_seconds = execution.target_seconds
+
+        # 8. 일시정지 처리
+        execution.status = "paused"
+        execution.save()
+
+        # 9. 남은 시간 계산 (초 단위)
+        remaining_seconds = (
+            execution.target_seconds - execution.used_seconds
+        )
+
+        return Response(
+            {
+                "execution_id": execution.id,
+                "status": execution.status,
+                "used_seconds": execution.used_seconds,
+                "remaining_seconds": remaining_seconds,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+    # POST /main/teumteum/execution/{execution_id}/resume
+    def resume(self, request, execution_id=None):
+
+        # 1. guest_uuid 검증
+        serializer = MainGETSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        guest_uuid = serializer.validated_data["guest_uuid"]
+
+        # 2. 사용자 조회
+        try:
+            user = User.objects.get(guest_uuid=guest_uuid)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "사용자 정보를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 3. 실행 기록 조회
+        try:
+            execution = CourseExecution.objects.get(
+                id=execution_id,
+                user=user
+            )
+        except CourseExecution.DoesNotExist:
+            return Response(
+                {"detail": "실행 기록을 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 4. 일시정지 상태인지 확인
+        if execution.status != "paused":
+            return Response(
+                {"detail": "일시정지된 코스가 아닙니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 5. 설정한 시간을 모두 사용했는지 확인
+        if execution.used_seconds >= execution.target_seconds:
+            return Response(
+                {"detail": "설정한 코스 시간이 모두 사용되었습니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 6. 다시 타이머 시작
+        execution.started_at = timezone.now()
+        execution.status = "in_progress"
+        execution.save()
+
+        # 7. 남은 시간 계산 (초 단위)
+        remaining_seconds = (
+            execution.target_seconds - execution.used_seconds
+        )
+
+        return Response(
+            {
+                "execution_id": execution.id,
+                "status": execution.status,
+                "used_seconds": execution.used_seconds,
+                "remaining_seconds": remaining_seconds,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+    def stop(self, request, execution_id=None):
+
+        # 1. guest_uuid 검증
+        serializer = MainGETSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        guest_uuid = serializer.validated_data["guest_uuid"]
+
+        # 2. 사용자 조회
+        try:
+            user = User.objects.get(guest_uuid=guest_uuid)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "사용자 정보를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 3. 실행 기록 조회
+        try:
+            execution = CourseExecution.objects.get(
+                id=execution_id,
+                user=user,
+                status="in_progress"
+            )
+        except CourseExecution.DoesNotExist:
+            return Response(
+                {"detail": "현재 실행 중인 코스가 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 4. 종료 시간과 마지막 사용 시간 계산 (초 단위)
+        ended_at = timezone.now()
+
+        elapsed_seconds = round(
+            (ended_at - execution.started_at).total_seconds()
+        )
+
+        # 기존 사용 시간에 마지막 사용 시간 누적
+        execution.used_seconds += elapsed_seconds
+
+        # 최대 설정 시간 초과 방지
+        if execution.used_seconds > execution.target_seconds:
+            execution.used_seconds = execution.target_seconds
+
+        # 5. 실행 정보 저장
+        execution.ended_at = ended_at
+        execution.status = "stopped"
+        execution.save()
+
+        # 6. 결과 반환
+        return Response(
+            {
+                "execution_id": execution.id,
+                "course_id": execution.course.id,
+                "status": execution.status,
+                "used_seconds": execution.used_seconds,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+    def complete(self, request, execution_id=None):
+
+        # 1. guest_uuid 검증
+        serializer = MainGETSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        guest_uuid = serializer.validated_data["guest_uuid"]
+
+        # 2. 사용자 조회
+        try:
+            user = User.objects.get(guest_uuid=guest_uuid)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "사용자 정보를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 3. 실행 기록 조회
+        try:
+            execution = CourseExecution.objects.get(
+                id=execution_id,
+                user=user,
+                status="in_progress"
+            )
+        except CourseExecution.DoesNotExist:
+            return Response(
+                {"detail": "현재 실행 중인 코스가 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 4. 마지막 실행 시간 계산 (초 단위)
+        ended_at = timezone.now()
+
+        elapsed_seconds = round(
+            (ended_at - execution.started_at).total_seconds()
+        )
+
+        execution.used_seconds += elapsed_seconds
+
+        # 최대 설정 시간 초과 방지
+        if execution.used_seconds > execution.target_seconds:
+            execution.used_seconds = execution.target_seconds
+
+        # 5. 실행 완료 처리
+        execution.ended_at = ended_at
+        execution.status = "completed"
+        execution.save()
+
+        # 6. 결과 반환
+        return Response(
+            {
+                "execution_id": execution.id,
+                "course_id": execution.course.id,
+                "status": execution.status,
+                "used_seconds": execution.used_seconds,
+            },
+            status=status.HTTP_200_OK
+        )
 
         # POST /main/teumteum/refresh
     def refresh(self, request):

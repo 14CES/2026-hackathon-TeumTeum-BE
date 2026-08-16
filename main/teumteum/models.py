@@ -42,9 +42,12 @@ class Option(models.Model):
 class MainAnswer(models.Model):
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="main_answers")
-    situation_option = models.ForeignKey(Option, on_delete=models.CASCADE, related_name="situation_answers", null=True)    # 1번 질문에서 선택한 선택지 하나
-    other_content = models.TextField(null=True, blank=True)                                                     # '기타' 선택 시 직접 입력
-    preferred_options = models.ManyToManyField(Option, related_name="preferred_answers")                        # 2번 질문에서 선택한 선택지 여러 개
+    situation_option = models.ForeignKey(Option, on_delete=models.CASCADE, related_name="situation_answers", null=True)    # 1번 질문: 장소
+    other_content = models.TextField(null=True, blank=True)                                                     # 장소 '기타' 선택 시 직접 입력
+    preferred_options = models.ManyToManyField(Option, related_name="preferred_answers")                        # 2번 질문: 회복 방식 (여러 개)
+    next_schedule_option = models.ForeignKey(Option, on_delete=models.CASCADE, related_name="next_schedule_answers", null=True)   # 3번 질문: 다음 일정
+    next_schedule_other_content = models.TextField(null=True, blank=True)                                       # 다음 일정 '기타' 선택 시 직접 입력
+    current_state_options = models.ManyToManyField(Option, related_name="current_state_answers")                    # 4번 질문: 현재 상태 (여러 개)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -85,6 +88,12 @@ class CourseContent(models.Model):
     thumbnail_url = models.URLField(null=True, blank=True)
     channel_name = models.CharField(max_length=255, null=True, blank=True)
 
+    voice_script = models.TextField(null=True, blank=True)                     # TTS로 읽어줄 텍스트 (article 선택, audio_guide 추천)
+    steps = models.JSONField(null=True, blank=True, default=list)              # 단계별 동작/호흡 타이밍 (stretch_guide, audio_guide)
+    question = models.CharField(max_length=255, null=True, blank=True)         # 질문 (reflection, skin_check)
+    question_options = models.JSONField(null=True, blank=True, default=list)   # 질문 선택지 (reflection, skin_check)
+    allow_text_input = models.BooleanField(default=False)                      # 자유 입력 허용 여부 (reflection)
+
     estimated_minutes = models.IntegerField()
 
     class Meta:
@@ -97,17 +106,45 @@ class CourseContent(models.Model):
 class CourseExecution(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="course_executions")
     course = models.ForeignKey(Course, on_delete=models.CASCADE,related_name="executions")
-    target_minutes = models.IntegerField()
+    target_minutes = models.IntegerField()             # 최초 설정값 (분 단위)
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)
+    used_seconds = models.IntegerField(default=0)      # 실행 중 누적 사용 시간 (초 단위)
     status = models.CharField(max_length=30, default="in_progress")
 
     class Meta:
         db_table = "course_executions"
 
+    @property
+    def target_seconds(self):
+        return self.target_minutes * 60
+
     def __str__(self):
         return f"{self.user} - {self.course}"
 
+
+class ActivityModuleTemplate(models.Model):
+    # 호흡/스트레칭/마음정리/피부체크처럼 검색 없이 재사용하는 웰니스 활동 모듈 카탈로그
+    content_type = models.CharField(max_length=50)   # audio_guide, stretch_guide, reflection, skin_check
+    title = models.CharField(max_length=255)
+    description = models.TextField(null=True, blank=True)
+
+    voice_script = models.TextField(null=True, blank=True)
+    steps = models.JSONField(null=True, blank=True, default=list)
+    question = models.CharField(max_length=255, null=True, blank=True)
+    question_options = models.JSONField(null=True, blank=True, default=list)
+    allow_text_input = models.BooleanField(default=False)
+
+    estimated_minutes = models.IntegerField()
+    tags = models.JSONField(default=list)               # 현재 상태 옵션 텍스트와 매칭 (예: "피곤해요")
+    allowed_contexts = models.JSONField(default=list)    # 장소 옵션 텍스트와 매칭 (예: "이동 중"), 비어있으면 장소 무관
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "activity_module_templates"
+
+    def __str__(self):
+        return self.title
 
 
 class WeeklyUsage(models.Model):

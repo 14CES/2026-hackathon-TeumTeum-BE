@@ -19,12 +19,15 @@ def test_create_course_api(monkeypatch):
 
     def mock_get_user_context(user):
         return {
-            "onboarding_status": ["휴식할 때"],
-            "categories": ["마음-틈"],
-            "topics": ["멘탈 케어"],
-            "main_situation": "카페/실내",
+            "onboarding_status": ["휴식 중"],
+            "categories": ["읽기"],
+            "topics": ["몸"],
+            "main_situation": "카페·실내",
             "other_content": None,
-            "content_types": ["독서", "스트레칭"],
+            "content_types": ["읽기", "스트레칭"],
+            "next_schedule": "귀가·휴식",
+            "next_schedule_other_content": None,
+            "current_state": ["몸이 뻐근해요"],
             "target_minutes": 30,
         }
 
