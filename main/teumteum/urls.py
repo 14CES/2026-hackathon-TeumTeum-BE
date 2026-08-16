@@ -12,7 +12,10 @@ default_router = routers.SimpleRouter(trailing_slash=False)
 
 default_router.register("main", MainViewSet, basename="main")
 default_router.register("main/questions", MainQuestionViewSet, basename="questions")
+default_router.register("main/teumteum", CourseViewSet, basename="course")
 
 urlpatterns = [
+    path("main/teumteum/<int:course_id>", CourseViewSet.as_view({"post": "execute"}), name="course-execute"),
+    path("main/teumteum/refresh", CourseViewSet.as_view({"post": "refresh"}), name="course-refresh"),
     path("", include(default_router.urls)),
 ] + static(settings.MEDIA_URL, document_root = settings.MEDIA_ROOT)
