@@ -99,6 +99,7 @@ class CourseExecution(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE,related_name="executions")
     target_minutes = models.IntegerField()
     started_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=30, default="in_progress")
 
     class Meta:
@@ -106,3 +107,26 @@ class CourseExecution(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.course}"
+
+
+
+class WeeklyUsage(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="weekly_usages"
+    )
+    week_start = models.DateField()
+    total_minutes = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = "weekly_usages"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "week_start"],
+                name="unique_user_week_usage"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user} - {self.week_start} - {self.total_minutes}분"

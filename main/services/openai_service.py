@@ -1,8 +1,9 @@
+import random
 from openai import OpenAI
 from django.conf import settings
 
 from onboarding.models import UserProfile
-from teumteum.models import MainAnswer
+from teumteum.models import MainAnswer,CourseContent
 
 from services.news import get_news
 from services.youtube import search_youtube
@@ -106,7 +107,7 @@ def get_user_context(user):
     }
 
 
-def generate_search_query(
+def generate_search_queries(
     situation,
     interests,
     content_type,
@@ -114,87 +115,87 @@ def generate_search_query(
     target_minutes
 ):
     prompt = f"""
-    너는 사용자의 취향에 맞는 콘텐츠를 찾기 위한
-    검색 API용 검색어를 생성하는 역할이다.
+너는 사용자의 취향에 맞는 콘텐츠를 찾기 위한
+검색 API용 검색어를 생성하는 역할이다.
 
-    [사용자 상황]
-    {situation}
+[사용자 상황]
+{situation}
 
-    [사용자 관심사]
-    {", ".join(interests)}
+[사용자 관심사]
+{", ".join(interests)}
 
-    [사용자가 선택한 콘텐츠 유형]
-    {content_type}
+[사용자가 선택한 콘텐츠 유형]
+{content_type}
 
-    [실제로 검색할 콘텐츠 종류]
-    {search_target}
+[실제로 검색할 콘텐츠 종류]
+{search_target}
 
-    [사용 가능 시간]
-    약 {target_minutes}분
+[사용 가능 시간]
+약 {target_minutes}분
 
-    [작업]
-    사용자의 관심사와 상황을 참고하여
-    검색 API에 바로 사용할 수 있는 한국어 검색어 1개를 만들어라.
+[작업]
+사용자의 관심사와 상황을 참고하여
+검색 API에 사용할 수 있는 한국어 검색어를 5개 만들어라.
 
-    검색어는 실제 검색 결과가 많이 나올 수 있도록
-    너무 길거나 문장 형태로 만들지 말고,
-    핵심 주제를 나타내는 2~5개의 키워드로 구성한다.
+각 검색어는 서로 다른 주제이지만
+사용자의 관심사와 관련되어야 한다.
 
-    사용 가능 시간이나 사용자의 상황은
-    검색어에 그대로 넣지 말고 콘텐츠를 선택하는 기준으로만 활용한다.
+각 검색어는 반드시 공백 없는
+일반적인 한국어 핵심 키워드 1개로만 작성한다.
 
-    [콘텐츠 종류별 기준]
+검색 결과가 많이 나올 수 있는
+넓고 일반적인 단어를 사용한다.
 
-    - 읽기 콘텐츠:
-    사용자의 관심사를 실제 뉴스 기사에서 검색할 수 있는
-    일반적인 핵심 키워드로 변환한다.
+두 개 이상의 단어를 조합하지 않는다.
 
-    "마음-틈", "몸-틈", "준비-틈",
-    "멘탈 케어", "트렌드·이슈"처럼
-    서비스 내부에서 사용하는 표현을 그대로 검색어로 사용하지 않는다.
+예를 들어
+"스트레스 관리", "불안 증상", "수면 개선"처럼
+여러 단어로 이루어진 검색어를 만들지 않는다.
 
-    검색어는 실제 뉴스에 자주 등장할 가능성이 높은
-    구체적인 키워드 1개로 만든다.
+"마음 치유 책"처럼 지나치게 구체적인 검색어도 만들지 않는다.
 
-    예:
-    멘탈 케어 → 스트레스, 심리, 불안, 수면
-    건강 → 건강, 운동, 질병, 식단
-    트렌드·이슈 → 사회, 기술, 문화, 소비
-    휴식 → 수면, 여가, 취미, 여행
+[콘텐츠 종류별 기준]
 
-    "뉴스", "기사", "읽기", "30분", "이동 중" 같은
-    콘텐츠 형식이나 시간·상황 표현은 검색어에 넣지 않는다.
+- 읽기 콘텐츠:
+실제 뉴스 기사에서 검색 가능한
+구체적이고 일반적인 핵심 키워드를 만든다.
 
-    - 유튜브:
-    사용자가 실제로 시청하거나 따라 할 수 있는
-    영상 콘텐츠를 찾기 위한 핵심 키워드를 만든다.
-    필요하면 활동명이나 주제명을 구체적으로 포함한다.
+예:
+멘탈 케어 → 스트레스, 불안, 수면, 정신건강, 심리, 명상, 마음챙김, 휴식, 웰빙, 자기관리
+건강 → 운동, 건강, 식단, 질병, 생활습관, 웰니스, 건강관리, 체력, 피로회복, 스트레칭, 걷기, 요가
+휴식 → 휴식, 여가, 힐링, 여행, 취미, 재충전, 웰니스, 라이프스타일
+트렌드·이슈 → 사회, 기술, 문화, 소비, 경제, 라이프스타일, 웰니스 트렌드
 
-    [출력 규칙]
-    검색어만 출력한다.
-    설명하지 않는다.
-    문장으로 작성하지 않는다.
-    따옴표와 번호를 사용하지 않는다.
-    검색 API에 바로 전달할 수 있는 한국어 키워드 한 줄만 출력한다.
-    """
+- 유튜브:
+사용자가 실제로 시청하거나 따라 할 수 있는
+영상 콘텐츠를 찾기 위한 핵심 키워드를 만든다.
 
-    response = client.responses.create(
-        model="gpt-5-mini",
-        input=prompt
-    )
+[출력 규칙]
+검색어만 출력한다.
+설명하지 않는다.
+번호를 사용하지 않는다.
+각 검색어는 한 줄에 하나씩 출력한다.
+정확히 5개의 검색어를 출력한다.
+"""
+
+    try:
+        response = client.responses.create(
+            model="gpt-5-mini",
+            input=prompt
+        )
+    except Exception as e:
+        print(f"검색어 생성 실패 ({content_type}):", e)
+        return []
 
     result = response.output_text.strip()
 
-    # 쉼표가 있으면 첫 번째 키워드만 사용
-    result = result.split(",")[0].strip()
+    queries = [
+        line.strip()
+        for line in result.split("\n")
+        if line.strip()
+    ]
 
-    # 줄바꿈이 있으면 첫 번째 줄만 사용
-    result = result.split("\n")[0].strip()
-
-    # 공백이 여러 개면 첫 번째 단어만 사용
-    result = result.split()[0]
-
-    return result
+    return queries[:5]
     
 
 
@@ -221,7 +222,7 @@ def generate_user_search_queries(user):
         else:
             search_target = "유튜브"
 
-        query = generate_search_query(
+        search_queries = generate_search_queries(
             situation=situation,
             interests=interests,
             content_type=content_type,
@@ -229,7 +230,7 @@ def generate_user_search_queries(user):
             target_minutes=context["target_minutes"]
         )
 
-        queries[content_type] = query
+        queries[content_type] = search_queries
 
     return queries
 
@@ -272,10 +273,14 @@ def summarize_content(text, estimated_minutes):
     마크다운을 사용하지 않는다.
     """
 
-    response = client.responses.create(
-        model="gpt-5-mini",
-        input=prompt
-    )
+    try:
+        response = client.responses.create(
+            model="gpt-5-mini",
+            input=prompt
+        )
+    except Exception as e:
+        print("기사 요약 실패, 원문 사용:", e)
+        return text
 
     return response.output_text.strip()
 
@@ -287,17 +292,167 @@ def get_recommended_contents(user):
     news_contents = []
     youtube_contents = []
 
-    for content_type, query in queries.items():
+    # 이 사용자가 이전에 추천받은 뉴스 CourseContent (재사용 후보)
+    old_news_qs = CourseContent.objects.filter(
+        course__user=user,
+        content_type="article"
+    ).exclude(
+        content_url__isnull=True
+    ).exclude(
+        content_url=""
+    )
 
-        if content_type == "독서":
-            news_contents.extend(
-                get_news(query, max_results=5)
-            )
+    # 이 사용자가 이전에 추천받은 유튜브 CourseContent (재사용 후보)
+    old_youtube_qs = CourseContent.objects.filter(
+        course__user=user,
+        content_type="youtube"
+    ).exclude(
+        video_url__isnull=True
+    ).exclude(
+        video_url=""
+    )
 
-        elif content_type in ["듣기", "스트레칭", "마인드컨트롤"]:
-            youtube_contents.extend(
-                search_youtube(query, max_results=5)
-            )
+    used_news_urls = set(
+        old_news_qs.values_list("content_url", flat=True)
+    )
+
+    used_youtube_urls = set(
+        old_youtube_qs.values_list("video_url", flat=True)
+    )
+
+    print("===== 이전 추천 콘텐츠 =====")
+    print("이미 추천한 뉴스 수:", len(used_news_urls))
+    print("이미 추천한 유튜브 수:", len(used_youtube_urls))
+
+    seen_news_urls = set()
+    seen_youtube_urls = set()
+
+    for content_type, search_queries in queries.items():
+
+        for query in search_queries:
+
+            if content_type == "독서":
+
+                results = get_news(query, max_results=5)
+
+                for content in results:
+                    url = content.get("url")
+
+                    if not url:
+                        continue
+
+                    if url in used_news_urls:
+                        continue
+
+                    if url in seen_news_urls:
+                        continue
+
+                    seen_news_urls.add(url)
+                    news_contents.append(content)
+
+            elif content_type in [
+                "듣기",
+                "스트레칭",
+                "마인드컨트롤"
+            ]:
+
+                results = search_youtube(query, max_results=5)
+
+                for content in results:
+                    url = content.get("url")
+
+                    if not url:
+                        continue
+
+                    if url in used_youtube_urls:
+                        continue
+
+                    if url in seen_youtube_urls:
+                        continue
+
+                    seen_youtube_urls.add(url)
+                    youtube_contents.append(content)
+
+    print("===== 중복 제거 후 새 콘텐츠 후보 =====")
+    print("새 뉴스 후보 수:", len(news_contents))
+    print("새 유튜브 후보 수:", len(youtube_contents))
+
+    # ---- 여기서부터 재사용 로직 ----
+
+    MIN_NEWS_COUNT = 3
+    MIN_YOUTUBE_COUNT = 3
+
+    if len(news_contents) < MIN_NEWS_COUNT:
+
+        needed = MIN_NEWS_COUNT - len(news_contents)
+
+        # 이미 새 후보로 뽑힌 것 제외하고, 이전 콘텐츠 중 랜덤하게 채움
+        reusable_news = [
+            content for content in old_news_qs
+            if content.content_url not in seen_news_urls
+            and content.content
+        ]
+
+        random.shuffle(reusable_news)
+
+        added = 0
+
+        for old_content in reusable_news:
+
+            if added >= needed:
+                break
+
+            news_contents.append({
+                "title": old_content.title,
+                "description": old_content.description,
+                "content": old_content.content,
+                "source": old_content.source,
+                "url": old_content.content_url,
+                "image_url": old_content.image_url,
+                "original_estimated_minutes": old_content.estimated_minutes,
+                "estimated_minutes": old_content.estimated_minutes,
+            })
+
+            seen_news_urls.add(old_content.content_url)
+            added += 1
+
+        print(f"뉴스 부족 → 이전 추천 뉴스에서 추가: {added}")
+
+    if len(youtube_contents) < MIN_YOUTUBE_COUNT:
+
+        needed = MIN_YOUTUBE_COUNT - len(youtube_contents)
+
+        reusable_youtube = [
+            content for content in old_youtube_qs
+            if content.video_url not in seen_youtube_urls
+        ]
+
+        random.shuffle(reusable_youtube)
+
+        added = 0
+
+        for old_content in reusable_youtube:
+
+            if added >= needed:
+                break
+
+            youtube_contents.append({
+                "title": old_content.title,
+                "url": old_content.video_url,
+                "thumbnail": old_content.thumbnail_url,
+                "channel": old_content.channel_name,
+                "original_estimated_minutes": old_content.estimated_minutes,
+                "estimated_minutes": old_content.estimated_minutes,
+            })
+
+            seen_youtube_urls.add(old_content.video_url)
+            added += 1
+
+        print(f"유튜브 부족 → 이전 추천 유튜브에서 추가: {added}")
+
+    print("===== 최종 후보 (재사용 포함) =====")
+    print("최종 뉴스 후보 수:", len(news_contents))
+    print("최종 유튜브 후보 수:", len(youtube_contents))
 
     return {
         "news": news_contents,

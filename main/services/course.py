@@ -1,4 +1,5 @@
 from itertools import combinations
+import random
 
 
 YOUTUBE_CONTENT_TYPES = {
@@ -86,8 +87,9 @@ def select_best_contents(
             youtube_count
         )
 
-    best_combination = None
+    best_combinations = []
     best_difference = None
+    best_article_length = None
 
     # 가능한 모든 조합 비교
     for news_combination in news_combinations:
@@ -98,8 +100,26 @@ def select_best_contents(
                 + list(youtube_combination)
             )
 
+            # 최종 시간 배분이 가능한 조합인지 확인
+            youtube_minutes = sum(
+                content.get("original_estimated_minutes", 0)
+                for content in youtube_combination
+            )
+
+            article_count = len(news_combination)
+
+            # 유튜브만으로 목표 시간을 초과하면 제외
+            if youtube_minutes > target_minutes:
+                continue
+
+            # 기사마다 최소 1분을 배정할 수 있어야 함
+            remaining_minutes = target_minutes - youtube_minutes
+
+            if remaining_minutes < article_count:
+                continue
+
             total_minutes = sum(
-                content.get("estimated_minutes", 0)
+                content.get("original_estimated_minutes", 0)
                 for content in contents
             )
 
@@ -107,19 +127,31 @@ def select_best_contents(
                 total_minutes - target_minutes
             )
 
-            # 가장 가까운 조합 선택
+            # 선택된 기사들의 전체 원문 길이
+            article_length = sum(
+                len(content.get("content", ""))
+                for content in news_combination
+            )
+
             if (
                 best_difference is None
                 or difference < best_difference
+                or (
+                    difference == best_difference
+                    and article_length > best_article_length
+                )
             ):
                 best_difference = difference
-                best_combination = contents
+                best_article_length = article_length
+                best_combinations = [contents]
 
-                # 정확히 목표 시간과 같으면 즉시 종료
-                if difference == 0:
-                    return best_combination
+            elif (
+                difference == best_difference
+                and article_length == best_article_length
+            ):
+                best_combinations.append(contents)
 
-    return best_combination
+    return random.choice(best_combinations) if best_combinations else None
 
 
 def allocate_content_minutes(contents, target_minutes):

@@ -192,6 +192,13 @@ class CourseViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        # 2-1. 틈 시간 설정 여부 확인
+        if not user.target_minutes:
+            return Response(
+                {"detail": "틈 시간 설정이 필요합니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         # 3. 사용자 추천 조건 조회
         try:
             context = get_user_context(user)
@@ -220,6 +227,17 @@ class CourseViewSet(viewsets.ViewSet):
             youtube_contents=youtube_contents,
             content_types=context["content_types"],
             target_minutes=context["target_minutes"],
+        )
+
+        if selected_contents is None:
+            return Response(
+                {"detail": "새로운 추천 코스를 생성할 수 없습니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )        
+
+        selected_contents = allocate_content_minutes(
+            selected_contents,
+            context["target_minutes"]
         )
 
         if selected_contents is None:
@@ -429,17 +447,8 @@ class CourseViewSet(viewsets.ViewSet):
         # 5. 새로운 콘텐츠 후보 가져오기
         recommended_contents = get_recommended_contents(user)
 
-        news_contents = [
-            content
-            for content in recommended_contents["news"]
-            if content.get("url") not in used_content_urls
-        ]
-
-        youtube_contents = [
-            content
-            for content in recommended_contents["youtube"]
-            if content.get("url") not in used_video_urls
-        ]
+        news_contents = recommended_contents["news"]
+        youtube_contents = recommended_contents["youtube"]
 
         # 6. 최종 콘텐츠 3개 선택
         selected_contents = select_best_contents(
@@ -447,6 +456,24 @@ class CourseViewSet(viewsets.ViewSet):
             youtube_contents=youtube_contents,
             content_types=context["content_types"],
             target_minutes=context["target_minutes"],
+        )
+
+        print("===== refresh 선택 결과 =====")
+        print("뉴스 후보 수:", len(news_contents))
+        print("유튜브 후보 수:", len(youtube_contents))
+        print("선호 콘텐츠 타입:", context["content_types"])
+        print("목표 시간:", context["target_minutes"])
+        print("selected_contents:", selected_contents)
+
+        if selected_contents is None:
+            return Response(
+                {"detail": "새로운 추천 코스를 생성할 수 없습니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )        
+
+        selected_contents = allocate_content_minutes(
+            selected_contents,
+            context["target_minutes"]
         )
 
         if selected_contents is None:

@@ -82,3 +82,22 @@ class RecordReentryResponseSerializer(serializers.ModelSerializer):
     def get_contents(self, obj):
         contents = obj.contents.all().order_by('sequence')
         return CourseContentSerializer(contents, many=True).data
+
+
+class RecordSaveSerializer(serializers.Serializer):
+    guest_uuid = serializers.CharField(
+        required=True,
+        error_messages={
+            "required": "이 필드는 필수 항목입니다."
+        }
+    )
+
+    def validate_guest_uuid(self, value):
+        try:
+            uuid.UUID(value)
+        except ValueError:
+            raise serializers.ValidationError(
+                "유효한 UUID 형식이 아닙니다."
+            )
+
+        return value

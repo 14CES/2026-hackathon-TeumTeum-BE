@@ -28,7 +28,6 @@ def parse_duration(duration):
         + seconds
     )
 
-    # 초가 있으면 올림
     return max(1, (total_seconds + 59) // 60)
 
 
@@ -45,13 +44,17 @@ def search_youtube(query, max_results=5):
         "maxResults": max_results,
     }
 
-    response = requests.get(
-        search_url,
-        params=search_params
-    )
-    response.raise_for_status()
-
-    data = response.json()
+    try:
+        response = requests.get(
+            search_url,
+            params=search_params,
+            timeout=5
+        )
+        response.raise_for_status()
+        data = response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"유튜브 검색 실패 (검색어: {query}):", e)
+        return []
 
     video_ids = [
         item["id"]["videoId"]
@@ -70,27 +73,38 @@ def search_youtube(query, max_results=5):
         "id": ",".join(video_ids),
     }
 
-    response = requests.get(
-        videos_url,
-        params=videos_params
-    )
-    response.raise_for_status()
+    duration_map = {}
 
-    duration_data = response.json()
-
-    # video_id별 영상 길이 저장
-    duration_map = {
-        item["id"]: parse_duration(
-            item["contentDetails"]["duration"]
+    try:
+        response = requests.get(
+            videos_url,
+            params=videos_params,
+            timeout=5
         )
-        for item in duration_data.get("items", [])
-    }
+        response.raise_for_status()
+        duration_data = response.json()
+
+        duration_map = {
+            item["id"]: parse_duration(
+                item["contentDetails"]["duration"]
+            )
+            for item in duration_data.get("items", [])
+        }
+    except requests.exceptions.RequestException as e:
+        # 길이 조회만 실패한 경우 -> 검색 결과는 살리고 기본 1분으로 처리
+        print(f"유튜브 영상 길이 조회 실패 (검색어: {query}):", e)
 
     # 3. 검색 결과 + 영상 길이 합치기
     videos = []
 
     for item in data.get("items", []):
+
         video_id = item["id"]["videoId"]
+
+        original_estimated_minutes = duration_map.get(
+            video_id,
+            1
+        )
 
         videos.append({
             "video_id": video_id,
@@ -98,7 +112,8 @@ def search_youtube(query, max_results=5):
             "channel": item["snippet"]["channelTitle"],
             "thumbnail": item["snippet"]["thumbnails"]["medium"]["url"],
             "url": f"https://www.youtube.com/watch?v={video_id}",
-            "estimated_minutes": duration_map.get(video_id, 1),
+            "original_estimated_minutes": original_estimated_minutes,
+            "estimated_minutes": original_estimated_minutes,
         })
 
     return videos
