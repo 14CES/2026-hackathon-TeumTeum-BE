@@ -4,7 +4,6 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from .serializers import OnboardingAnswerSerializer
 
-# 1. 온보딩 질문 목록 조회 API (GET /onboarding/questions/)
 class OnboardingQuestionView(APIView):
     permission_classes = [AllowAny]
 
@@ -26,6 +25,7 @@ class OnboardingQuestionView(APIView):
                     "order": 2,
                     "question_id": 2,
                     "question": "보통 어떤 순간에 '틈'이 찾아오나요?",
+                    "description": "자주 마주치는 공백시간 상황을 알려주세요. (복수 선택 가능)",
                     "options": [
                         {"option_id": 5, "content": "이동 중"},
                         {"option_id": 6, "content": "약속 전"},
@@ -49,9 +49,8 @@ class OnboardingQuestionView(APIView):
         return Response(data, status=status.HTTP_200_OK)
 
 
-# 2. 온보딩 답변 제출 API (POST /onboarding/)
 class OnboardingAnswerView(APIView):
-    permission_classes = [IsAuthenticated] # X-Guest-ID 헤더 검증
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         serializer = OnboardingAnswerSerializer(data=request.data)

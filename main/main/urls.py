@@ -16,6 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from accounts.views import MyPageView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -24,4 +25,5 @@ urlpatterns = [
     path('onboarding/', include('onboarding.urls')),
     path('records/', include('records.urls')),
     path('magazines/', include('magazines.urls')),
+    path('mypage', MyPageView.as_view(), name='mypage'),
 ]
