@@ -5,9 +5,9 @@ from .models import UserProfile
 
 # 질문별 유효한 option_id 매핑 테이블 (1~12)
 ONBOARDING_DATA = {
-    1: [1, 2, 3, 4],     # 독서, 듣기, 스트레칭, 마인드컨트롤
-    2: [5, 6, 7, 8],     # 이동할 때, 약속 전에, 휴식할 때, 업무 중에
-    3: [9, 10, 11, 12]   # 트렌드 토픽, 멘탈 케어, 운동, 휴식
+    1: [1, 2, 3, 4],
+    2: [5, 6, 7, 8],
+    3: [9, 10, 11, 12]
 }
 
 ALL_OPTION_IDS = {opt for opts in ONBOARDING_DATA.values() for opt in opts}
