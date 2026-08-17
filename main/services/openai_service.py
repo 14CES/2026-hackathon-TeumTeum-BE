@@ -6,7 +6,7 @@ from openai import OpenAI
 from django.conf import settings
 
 from onboarding.models import UserProfile
-from teumteum.models import MainAnswer, CourseContent, CourseExecution, WellnessArticleSource
+from teumteum.models import MainAnswer, CourseContent, CourseExecution, WellnessArticleSource, YoutubeVideoSource
 
 from services.youtube import search_youtube
 
@@ -668,7 +668,7 @@ def get_recommended_contents(user):
     print("===== 중복 제거 후 새 유튜브 후보 =====")
     print("새 유튜브 후보 수:", len(youtube_contents))
 
-    # ---- 유튜브가 부족하면 이전 추천에서 재사용 ----
+    # ---- 유튜브가 부족하면 더미 풀에서 채우고, 그래도 부족하면 이전 추천을 재사용 ----
 
     MIN_YOUTUBE_COUNT = 3
 
@@ -676,33 +676,67 @@ def get_recommended_contents(user):
 
         needed = MIN_YOUTUBE_COUNT - len(youtube_contents)
 
-        reusable_youtube = [
-            content for content in old_youtube_qs
-            if content.video_url not in seen_youtube_urls
-        ]
+        dummy_candidates = list(
+            YoutubeVideoSource.objects.filter(is_active=True)
+            .exclude(url__in=used_youtube_urls)
+            .exclude(url__in=seen_youtube_urls)
+        )
 
-        random.shuffle(reusable_youtube)
+        random.shuffle(dummy_candidates)
 
         added = 0
 
-        for old_content in reusable_youtube:
+        for video in dummy_candidates:
 
             if added >= needed:
                 break
 
             youtube_contents.append({
-                "title": old_content.title,
-                "url": old_content.video_url,
-                "thumbnail": old_content.thumbnail_url,
-                "channel": old_content.channel_name,
-                "original_estimated_minutes": old_content.estimated_minutes,
-                "estimated_minutes": old_content.estimated_minutes,
+                "title": video.title,
+                "url": video.url,
+                "thumbnail": video.thumbnail_url,
+                "channel": video.channel_name,
+                "original_estimated_minutes": video.estimated_minutes,
+                "estimated_minutes": video.estimated_minutes,
             })
 
-            seen_youtube_urls.add(old_content.video_url)
+            seen_youtube_urls.add(video.url)
             added += 1
 
-        print(f"유튜브 부족 → 이전 추천 유튜브에서 추가: {added}")
+        print(f"유튜브 부족 → 더미 풀에서 추가: {added}")
+
+        # 더미 풀로도 다 못 채우면, 최후의 수단으로 이전에 추천했던 영상을 재사용한다
+        if added < needed:
+
+            remaining_needed = needed - added
+
+            reusable_youtube = [
+                content for content in old_youtube_qs
+                if content.video_url not in seen_youtube_urls
+            ]
+
+            random.shuffle(reusable_youtube)
+
+            reused = 0
+
+            for old_content in reusable_youtube:
+
+                if reused >= remaining_needed:
+                    break
+
+                youtube_contents.append({
+                    "title": old_content.title,
+                    "url": old_content.video_url,
+                    "thumbnail": old_content.thumbnail_url,
+                    "channel": old_content.channel_name,
+                    "original_estimated_minutes": old_content.estimated_minutes,
+                    "estimated_minutes": old_content.estimated_minutes,
+                })
+
+                seen_youtube_urls.add(old_content.video_url)
+                reused += 1
+
+            print(f"더미 풀로도 부족 → 이전 추천 유튜브에서 추가: {reused}")
 
     # 분당 모듈 개수 표의 최대치(4개)까지 고를 수 있도록 후보를 충분히 확보한다
     article_contents = select_wellness_articles(user, interests, max_count=4)
