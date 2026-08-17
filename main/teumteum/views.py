@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.shortcuts import render
 from django.utils import timezone
 
@@ -10,6 +12,7 @@ from .serializers import (
     CourseSerializer,
     CourseExecutionSerializer,
     CourseContentSerializer,
+    CourseRatingSerializer,
 )
 
 from .models import (
@@ -20,18 +23,148 @@ from .models import (
     Course,
     CourseContent,
     CourseExecution,
+    WeeklyUsage,
 )
 
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 
-from services.news import get_news
-from services.youtube import search_youtube
-from services.openai_service import get_user_context, get_recommended_contents, summarize_content
-from services.course import select_best_contents, allocate_content_minutes
+from services.openai_service import get_user_context, get_recommended_contents, generate_personalized_brief
+from services.course import (
+    select_best_contents,
+    allocate_content_minutes,
+    select_activity_module,
+    YOUTUBE_CONTENT_TYPES,
+)
 
 from accounts.models import User
 from onboarding.models import UserProfile
+from records.models import Record, RecordContent
+
+
+def get_week_start(dt):
+    # 월요일을 그 주의 시작으로 본다
+    date = timezone.localtime(dt).date()
+    return date - timedelta(days=date.weekday())
+
+
+def record_weekly_usage(user, seconds):
+    minutes = round(seconds / 60)
+
+    if minutes <= 0:
+        return
+
+    week_start = get_week_start(timezone.now())
+
+    weekly_usage, _ = WeeklyUsage.objects.get_or_create(
+        user=user,
+        week_start=week_start,
+    )
+
+    weekly_usage.total_minutes += minutes
+    weekly_usage.save()
+
+
+def pick_activity_module_slot(context, situation):
+    # 회복 방식에 듣기/스트레칭/마음 정리 중 하나라도 있어야 활동 모듈(오디오가이드 등)을 고려한다
+    if not any(
+        content_type in YOUTUBE_CONTENT_TYPES
+        for content_type in context["content_types"]
+    ):
+        return None
+
+    # 최소 1분은 다른 콘텐츠(읽기/유튜브)에 남겨둔다
+    remaining_minutes = context["target_minutes"] - 1
+
+    if remaining_minutes <= 0:
+        return None
+
+    return select_activity_module(
+        current_state=context["current_state"],
+        situation=situation,
+        remaining_minutes=remaining_minutes,
+    )
+
+
+def save_course_record(user, execution):
+    # 실제로 사용한 시간(초)을 분 단위로 환산해 기록에 남긴다
+    completed_minutes = round(execution.used_seconds / 60)
+
+    content_types_used = ",".join(
+        execution.course.contents.values_list("content_type", flat=True)
+    )
+
+    record = Record.objects.create(
+        user=user,
+        course=execution.course,
+        category=content_types_used,
+        target_minutes=execution.target_minutes,
+        completed_minutes=completed_minutes,
+        started_at=execution.started_at,
+        completed_at=execution.ended_at,
+    )
+
+    for content in execution.course.contents.all().order_by("content_order"):
+        RecordContent.objects.create(
+            record=record,
+            sequence=content.content_order,
+            content_type=content.content_type,
+            title=content.title,
+            url=content.video_url or content.content_url or "",
+        )
+
+    return record
+
+
+def start_course_execution(user, course):
+    # execute()와 기록 재실행 API가 공유하는 실행 시작 로직
+
+    contents = CourseContent.objects.filter(
+        course=course
+    ).order_by("content_order")
+
+    if not contents.exists():
+        return Response(
+            {"detail": "해당 추천 코스의 콘텐츠를 찾을 수 없습니다."},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    active_execution = CourseExecution.objects.filter(
+        user=user,
+        status="in_progress"
+    ).first()
+
+    if active_execution:
+        return Response(
+            {"detail": "현재 실행 중인 코스가 있습니다."},
+            status=status.HTTP_409_CONFLICT
+        )
+
+    started_at = timezone.now()
+
+    execution = CourseExecution.objects.create(
+        user=user,
+        course=course,
+        target_minutes=course.total_minutes,
+        started_at=started_at,
+        status="in_progress",
+    )
+
+    remaining_seconds = execution.target_seconds
+
+    execution_serializer = CourseExecutionSerializer(execution)
+    contents_serializer = CourseContentSerializer(contents, many=True)
+
+    return Response(
+        {
+            **execution_serializer.data,
+            "guest_uuid": str(user.guest_uuid),
+            "remaining_seconds": remaining_seconds,
+            "contents": contents_serializer.data,
+        },
+        status=status.HTTP_201_CREATED
+    )
+
 
 class MainViewSet(viewsets.ViewSet):
 
@@ -241,29 +374,43 @@ class CourseViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # 5. NewsData / YouTube에서 후보 콘텐츠 가져오기
+        # 5. 웰니스 원문 / YouTube에서 후보 콘텐츠 가져오기
         recommended_contents = get_recommended_contents(user)
 
-        news_contents = recommended_contents["news"]
+        article_contents = recommended_contents["articles"]
         youtube_contents = recommended_contents["youtube"]
 
-        # 6. target_minutes에 가장 가까운 콘텐츠 3개 선택
+        situation = context["other_content"] or context["main_situation"]
+        interests = context["categories"] + context["topics"]
+
+        # 5-1. 현재 상태에 맞는 활동 모듈(오디오가이드 등)이 있으면 한 자리 먼저 배정
+        activity_module = pick_activity_module_slot(context, situation)
+
+        if activity_module:
+            total_count = 2
+            remaining_target_minutes = context["target_minutes"] - activity_module.estimated_minutes
+        else:
+            total_count = 3
+            remaining_target_minutes = context["target_minutes"]
+
+        # 6. target_minutes에 가장 가까운 나머지 콘텐츠 선택
         selected_contents = select_best_contents(
-            news_contents=news_contents,
+            article_contents=article_contents,
             youtube_contents=youtube_contents,
             content_types=context["content_types"],
-            target_minutes=context["target_minutes"],
+            target_minutes=remaining_target_minutes,
+            total_count=total_count,
         )
 
         if selected_contents is None:
             return Response(
                 {"detail": "새로운 추천 코스를 생성할 수 없습니다."},
                 status=status.HTTP_400_BAD_REQUEST
-            )        
+            )
 
         selected_contents = allocate_content_minutes(
             selected_contents,
-            context["target_minutes"]
+            remaining_target_minutes
         )
 
         if selected_contents is None:
@@ -281,28 +428,48 @@ class CourseViewSet(viewsets.ViewSet):
         )
 
         # 8. 선택된 콘텐츠 저장
-        for index, content in enumerate(selected_contents, start=1):
+        content_order = 1
+
+        if activity_module:
+            CourseContent.objects.create(
+                course=course,
+                content_order=content_order,
+                content_type=activity_module.content_type,
+                title=activity_module.title,
+                description=activity_module.description or "",
+                voice_script=activity_module.voice_script,
+                steps=activity_module.steps,
+                question=activity_module.question,
+                question_options=activity_module.question_options,
+                allow_text_input=activity_module.allow_text_input,
+                estimated_minutes=activity_module.estimated_minutes,
+            )
+            content_order += 1
+
+        for content in selected_contents:
 
             # 읽기 콘텐츠
             if "source" in content:
 
-                article_content = content.get("content") or ""
-
-                article_content = summarize_content(
-                    article_content,
-                    content["estimated_minutes"],
+                brief = generate_personalized_brief(
+                    source_content=content.get("content") or "",
+                    source_title=content["title"],
+                    situation=situation,
+                    interests=interests,
+                    estimated_minutes=content["estimated_minutes"],
                 )
 
                 CourseContent.objects.create(
                     course=course,
-                    content_order=index,
+                    content_order=content_order,
                     content_type="article",
-                    title=content["title"],
-                    description=content.get("description") or "",
-                    content=article_content,
+                    title=brief["title"],
+                    description=brief["action_tip"] or "",
+                    content=brief["content"],
+                    question=brief["question"],
+                    voice_script=brief["content"],
                     source=content.get("source"),
-                    content_url=content.get("url"),
-                    image_url=content.get("image_url"),
+                    source_article_id=content.get("source_article_id"),
                     estimated_minutes=content["estimated_minutes"],
                 )
 
@@ -311,7 +478,7 @@ class CourseViewSet(viewsets.ViewSet):
 
                 CourseContent.objects.create(
                     course=course,
-                    content_order=index,
+                    content_order=content_order,
                     content_type="youtube",
                     title=content["title"],
                     description="",
@@ -320,6 +487,8 @@ class CourseViewSet(viewsets.ViewSet):
                     channel_name=content["channel"],
                     estimated_minutes=content["estimated_minutes"],
                 )
+
+            content_order += 1
 
         # 9. 최종 코스 응답
         course_serializer = CourseSerializer(course)
@@ -364,60 +533,7 @@ class CourseViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # 4. 코스 콘텐츠 조회
-        contents = CourseContent.objects.filter(
-            course=course
-        ).order_by("content_order")
-
-        if not contents.exists():
-            return Response(
-                {"detail": "해당 추천 코스의 콘텐츠를 찾을 수 없습니다."},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        active_execution = CourseExecution.objects.filter(
-            user=user,
-            status="in_progress"
-        ).first()
-
-        if active_execution:
-            return Response(
-                {"detail": "현재 실행 중인 코스가 있습니다."},
-                status=status.HTTP_409_CONFLICT
-            )
-
-        # 5. 코스 실행 기록 생성
-        started_at = timezone.now()
-
-        execution = CourseExecution.objects.create(
-            user=user,
-            course=course,
-            target_minutes=course.total_minutes,
-            started_at=started_at,
-            status="in_progress",
-        )
-
-        # 6. 실행 시작 시점의 남은 시간 (초 단위)
-        remaining_seconds = execution.target_seconds
-
-        # 7. Serializer
-        execution_serializer = CourseExecutionSerializer(execution)
-
-        contents_serializer = CourseContentSerializer(
-            contents,
-            many=True
-        )
-
-        # 8. 응답
-        return Response(
-            {
-                **execution_serializer.data,
-                "guest_uuid": str(user.guest_uuid),
-                "remaining_seconds": remaining_seconds,
-                "contents": contents_serializer.data,
-            },
-            status=status.HTTP_201_CREATED
-        )
+        return start_course_execution(user, course)
 
 
     # POST /main/teumteum/execution/{execution_id}/pause
@@ -605,6 +721,9 @@ class CourseViewSet(viewsets.ViewSet):
         execution.status = "stopped"
         execution.save()
 
+        # 5-1. 이번 주 누적 사용 시간에 반영
+        record_weekly_usage(user, execution.used_seconds)
+
         # 6. 결과 반환
         return Response(
             {
@@ -665,6 +784,12 @@ class CourseViewSet(viewsets.ViewSet):
         execution.status = "completed"
         execution.save()
 
+        # 5-1. 이번 주 누적 사용 시간에 반영
+        record_weekly_usage(user, execution.used_seconds)
+
+        # 5-2. 기록(Record) 저장
+        record = save_course_record(user, execution)
+
         # 6. 결과 반환
         return Response(
             {
@@ -672,6 +797,58 @@ class CourseViewSet(viewsets.ViewSet):
                 "course_id": execution.course.id,
                 "status": execution.status,
                 "used_seconds": execution.used_seconds,
+                "record_id": record.id,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+    # POST /main/teumteum/execution/{execution_id}/rate
+    def rate(self, request, execution_id=None):
+
+        # 1. guest_uuid, satisfaction 검증
+        serializer = CourseRatingSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        guest_uuid = serializer.validated_data["guest_uuid"]
+        satisfaction = serializer.validated_data["satisfaction"]
+
+        # 2. 사용자 조회
+        try:
+            user = User.objects.get(guest_uuid=guest_uuid)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "사용자 정보를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 3. 실행 기록 조회
+        try:
+            execution = CourseExecution.objects.get(
+                id=execution_id,
+                user=user
+            )
+        except CourseExecution.DoesNotExist:
+            return Response(
+                {"detail": "실행 기록을 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 4. 종료된 코스인지 확인
+        if execution.status not in ["completed", "stopped"]:
+            return Response(
+                {"detail": "종료된 코스만 평가할 수 있습니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 5. 평가 저장
+        execution.satisfaction = satisfaction
+        execution.save()
+
+        return Response(
+            {
+                "execution_id": execution.id,
+                "satisfaction": execution.satisfaction,
             },
             status=status.HTTP_200_OK
         )
@@ -709,39 +886,36 @@ class CourseViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # 4. 기존 추천 콘텐츠 URL 수집
-        used_content_urls = set(
-            CourseContent.objects
-            .filter(course__user=user)
-            .exclude(content_url__isnull=True)
-            .exclude(content_url="")
-            .values_list("content_url", flat=True)
-        )
-
-        used_video_urls = set(
-            CourseContent.objects
-            .filter(course__user=user)
-            .exclude(video_url__isnull=True)
-            .exclude(video_url="")
-            .values_list("video_url", flat=True)
-        )
-
-        # 5. 새로운 콘텐츠 후보 가져오기
+        # 4. 새로운 콘텐츠 후보 가져오기
         recommended_contents = get_recommended_contents(user)
 
-        news_contents = recommended_contents["news"]
+        article_contents = recommended_contents["articles"]
         youtube_contents = recommended_contents["youtube"]
 
-        # 6. 최종 콘텐츠 3개 선택
+        situation = context["other_content"] or context["main_situation"]
+        interests = context["categories"] + context["topics"]
+
+        # 4-1. 현재 상태에 맞는 활동 모듈(오디오가이드 등)이 있으면 한 자리 먼저 배정
+        activity_module = pick_activity_module_slot(context, situation)
+
+        if activity_module:
+            total_count = 2
+            remaining_target_minutes = context["target_minutes"] - activity_module.estimated_minutes
+        else:
+            total_count = 3
+            remaining_target_minutes = context["target_minutes"]
+
+        # 5. 최종 나머지 콘텐츠 선택
         selected_contents = select_best_contents(
-            news_contents=news_contents,
+            article_contents=article_contents,
             youtube_contents=youtube_contents,
             content_types=context["content_types"],
-            target_minutes=context["target_minutes"],
+            target_minutes=remaining_target_minutes,
+            total_count=total_count,
         )
 
         print("===== refresh 선택 결과 =====")
-        print("뉴스 후보 수:", len(news_contents))
+        print("원문 후보 수:", len(article_contents))
         print("유튜브 후보 수:", len(youtube_contents))
         print("선호 콘텐츠 타입:", context["content_types"])
         print("목표 시간:", context["target_minutes"])
@@ -751,11 +925,11 @@ class CourseViewSet(viewsets.ViewSet):
             return Response(
                 {"detail": "새로운 추천 코스를 생성할 수 없습니다."},
                 status=status.HTTP_400_BAD_REQUEST
-            )        
+            )
 
         selected_contents = allocate_content_minutes(
             selected_contents,
-            context["target_minutes"]
+            remaining_target_minutes
         )
 
         if selected_contents is None:
@@ -764,7 +938,7 @@ class CourseViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 7. 새로운 Course 생성
+        # 6. 새로운 Course 생성
         course = Course.objects.create(
             user=user,
             title=f"{user.target_minutes}분 틈 활용법",
@@ -772,28 +946,48 @@ class CourseViewSet(viewsets.ViewSet):
             total_minutes=user.target_minutes,
         )
 
-        # 8. CourseContent 저장
-        for index, content in enumerate(selected_contents, start=1):
+        # 7. CourseContent 저장
+        content_order = 1
+
+        if activity_module:
+            CourseContent.objects.create(
+                course=course,
+                content_order=content_order,
+                content_type=activity_module.content_type,
+                title=activity_module.title,
+                description=activity_module.description or "",
+                voice_script=activity_module.voice_script,
+                steps=activity_module.steps,
+                question=activity_module.question,
+                question_options=activity_module.question_options,
+                allow_text_input=activity_module.allow_text_input,
+                estimated_minutes=activity_module.estimated_minutes,
+            )
+            content_order += 1
+
+        for content in selected_contents:
 
             if "source" in content:
 
-                article_content = content.get("content") or ""
-
-                article_content = summarize_content(
-                    article_content,
-                    content["estimated_minutes"],
+                brief = generate_personalized_brief(
+                    source_content=content.get("content") or "",
+                    source_title=content["title"],
+                    situation=situation,
+                    interests=interests,
+                    estimated_minutes=content["estimated_minutes"],
                 )
 
                 CourseContent.objects.create(
                     course=course,
-                    content_order=index,
+                    content_order=content_order,
                     content_type="article",
-                    title=content["title"],
-                    description=content.get("description") or "",
-                    content=article_content,
+                    title=brief["title"],
+                    description=brief["action_tip"] or "",
+                    content=brief["content"],
+                    question=brief["question"],
+                    voice_script=brief["content"],
                     source=content.get("source"),
-                    content_url=content.get("url"),
-                    image_url=content.get("image_url"),
+                    source_article_id=content.get("source_article_id"),
                     estimated_minutes=content["estimated_minutes"],
                 )
 
@@ -801,7 +995,7 @@ class CourseViewSet(viewsets.ViewSet):
 
                 CourseContent.objects.create(
                     course=course,
-                    content_order=index,
+                    content_order=content_order,
                     content_type="youtube",
                     title=content["title"],
                     description="",
@@ -811,7 +1005,9 @@ class CourseViewSet(viewsets.ViewSet):
                     estimated_minutes=content["estimated_minutes"],
                 )
 
-        # 9. 새로운 추천 코스 반환
+            content_order += 1
+
+        # 8. 새로운 추천 코스 반환
         course_serializer = CourseSerializer(course)
 
         return Response(

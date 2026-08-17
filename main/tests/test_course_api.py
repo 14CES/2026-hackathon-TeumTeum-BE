@@ -33,21 +33,21 @@ def test_create_course_api(monkeypatch):
 
     def mock_get_recommended_contents(user):
         return {
-            "news": [
+            "articles": [
                 {
-                    "title": "뉴스 1",
-                    "description": "뉴스 설명 1",
-                    "source": "테스트 출처",
-                    "url": "https://example.com/news1",
-                    "image_url": "https://example.com/news1.jpg",
+                    "source_article_id": 1,
+                    "title": "웰니스 원문 1",
+                    "content": "웰니스 원문 1 본문",
+                    "source": "틈틈 웰니스 노트",
+                    "original_estimated_minutes": 10,
                     "estimated_minutes": 10,
                 },
                 {
-                    "title": "뉴스 2",
-                    "description": "뉴스 설명 2",
-                    "source": "테스트 출처",
-                    "url": "https://example.com/news2",
-                    "image_url": "https://example.com/news2.jpg",
+                    "source_article_id": 2,
+                    "title": "웰니스 원문 2",
+                    "content": "웰니스 원문 2 본문",
+                    "source": "틈틈 웰니스 노트",
+                    "original_estimated_minutes": 10,
                     "estimated_minutes": 10,
                 },
             ],
@@ -63,6 +63,14 @@ def test_create_course_api(monkeypatch):
             ],
         }
 
+    def mock_generate_personalized_brief(source_content, source_title, situation, interests, estimated_minutes):
+        return {
+            "title": source_title,
+            "content": source_content,
+            "action_tip": "테스트 실천 팁",
+            "question": "테스트 질문",
+        }
+
     monkeypatch.setattr(
         "teumteum.views.get_user_context",
         mock_get_user_context,
@@ -71,6 +79,11 @@ def test_create_course_api(monkeypatch):
     monkeypatch.setattr(
         "teumteum.views.get_recommended_contents",
         mock_get_recommended_contents,
+    )
+
+    monkeypatch.setattr(
+        "teumteum.views.generate_personalized_brief",
+        mock_generate_personalized_brief,
     )
 
     # When

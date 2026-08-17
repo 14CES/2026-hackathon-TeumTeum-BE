@@ -71,6 +71,21 @@ class Course(models.Model):
 
 
 
+class WellnessArticleSource(models.Model):
+    # 팀이 직접 쓴 웰니스 원문 풀. "읽기" 콘텐츠는 뉴스 API 대신 여기서 골라 AI가 재구성한다.
+    title = models.CharField(max_length=255)
+    content = models.TextField()
+    topics = models.JSONField(default=list)   # 관심 웰니스 옵션과 매칭 (예: "피부", "몸", "마음", "수면")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "wellness_article_sources"
+
+    def __str__(self):
+        return self.title
+
+
 class CourseContent(models.Model):
 
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="contents")
@@ -81,6 +96,7 @@ class CourseContent(models.Model):
     content = models.TextField(null=True, blank=True)
 
     source = models.CharField(max_length=255, null=True, blank=True)
+    source_article = models.ForeignKey(WellnessArticleSource, on_delete=models.SET_NULL, null=True, blank=True, related_name="course_contents")
     content_url = models.URLField(null=True, blank=True)
     image_url = models.URLField(null=True, blank=True)
 
@@ -111,6 +127,7 @@ class CourseExecution(models.Model):
     ended_at = models.DateTimeField(null=True, blank=True)
     used_seconds = models.IntegerField(default=0)      # 실행 중 누적 사용 시간 (초 단위)
     status = models.CharField(max_length=30, default="in_progress")
+    satisfaction = models.CharField(max_length=20, null=True, blank=True)  # good, neutral, bad
 
     class Meta:
         db_table = "course_executions"

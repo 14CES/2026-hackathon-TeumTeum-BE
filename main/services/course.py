@@ -10,27 +10,31 @@ YOUTUBE_CONTENT_TYPES = {
 
 
 def select_best_contents(
-    news_contents,
+    article_contents,
     youtube_contents,
     content_types,
-    target_minutes
+    target_minutes,
+    total_count=3
 ):
     """
     사용자가 선택한 회복 방식(읽기/듣기/스트레칭/마음 정리)에 따라
-    최종 콘텐츠 3개의 구성 비율을 결정하고,
+    최종 콘텐츠 total_count개의 구성 비율을 결정하고,
     target_minutes에 가장 가까운 조합을 선택한다.
 
+    total_count는 기본 3이지만, 활동 모듈(오디오가이드 등)이 이미
+    한 자리를 차지한 경우 호출하는 쪽에서 2로 줄여서 넘긴다.
+
     읽기만
-    -> 기사 3개 + 유튜브 0개
+    -> 기사 total_count개 + 유튜브 0개
 
     읽기 + 유튜브 계열 1개
-    -> 기사 2개 + 유튜브 1개
+    -> 기사 (total_count-1)개 + 유튜브 1개
 
     읽기 + 유튜브 계열 2개 이상
-    -> 기사 1개 + 유튜브 2개
+    -> 기사 1개 + 유튜브 (total_count-1)개
 
     읽기 없이 유튜브 계열만
-    -> 기사 0개 + 유튜브 3개
+    -> 기사 0개 + 유튜브 total_count개
     """
 
     has_reading = "읽기" in content_types
@@ -44,38 +48,38 @@ def select_best_contents(
     if has_reading:
         if youtube_type_count == 0:
             # 읽기만
-            news_count = 3
+            article_count = total_count
             youtube_count = 0
 
         elif youtube_type_count == 1:
             # 읽기 + 듣기 / 스트레칭 / 마음 정리 중 1개
-            news_count = 2
-            youtube_count = 1
+            article_count = max(total_count - 1, 1)
+            youtube_count = total_count - article_count
 
         else:
             # 읽기 + 유튜브 계열 2개 이상
-            news_count = 1
-            youtube_count = 2
+            article_count = 1
+            youtube_count = total_count - 1
 
     else:
         # 읽기 없이 듣기 / 스트레칭 / 마음 정리
-        news_count = 0
-        youtube_count = 3
+        article_count = 0
+        youtube_count = total_count
 
     # 후보 수 확인
-    if len(news_contents) < news_count:
+    if len(article_contents) < article_count:
         return None
 
     if len(youtube_contents) < youtube_count:
         return None
 
     # 읽기 콘텐츠 조합
-    if news_count == 0:
-        news_combinations = [()]
+    if article_count == 0:
+        article_combinations = [()]
     else:
-        news_combinations = combinations(
-            news_contents,
-            news_count
+        article_combinations = combinations(
+            article_contents,
+            article_count
         )
 
     # 유튜브 콘텐츠 조합
@@ -92,11 +96,11 @@ def select_best_contents(
     best_article_length = None
 
     # 가능한 모든 조합 비교
-    for news_combination in news_combinations:
+    for article_combination in article_combinations:
         for youtube_combination in youtube_combinations:
 
             contents = (
-                list(news_combination)
+                list(article_combination)
                 + list(youtube_combination)
             )
 
@@ -106,7 +110,7 @@ def select_best_contents(
                 for content in youtube_combination
             )
 
-            article_count = len(news_combination)
+            combination_article_count = len(article_combination)
 
             # 유튜브만으로 목표 시간을 초과하면 제외
             if youtube_minutes > target_minutes:
@@ -115,7 +119,7 @@ def select_best_contents(
             # 기사마다 최소 1분을 배정할 수 있어야 함
             remaining_minutes = target_minutes - youtube_minutes
 
-            if remaining_minutes < article_count:
+            if remaining_minutes < combination_article_count:
                 continue
 
             total_minutes = sum(
@@ -130,7 +134,7 @@ def select_best_contents(
             # 선택된 기사들의 전체 원문 길이
             article_length = sum(
                 len(content.get("content", ""))
-                for content in news_combination
+                for content in article_combination
             )
 
             if (

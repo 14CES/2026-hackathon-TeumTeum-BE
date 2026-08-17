@@ -10,6 +10,23 @@ class MainGETSerializer(serializers.Serializer):
     )
 
 
+class CourseRatingSerializer(serializers.Serializer):
+    guest_uuid = serializers.UUIDField(
+        error_messages={
+            "required": "이 필드는 필수 항목입니다.",
+            "invalid": "유효한 UUID 형식이 아닙니다."
+        }
+    )
+
+    satisfaction = serializers.ChoiceField(
+        choices=["good", "neutral", "bad"],
+        error_messages={
+            "required": "이 필드는 필수 항목입니다.",
+            "invalid_choice": "좋았어요/보통이에요/별로예요 중 하나를 선택해주세요."
+        }
+    )
+
+
 class MainSerializer(serializers.Serializer):
     guest_uuid = serializers.UUIDField(
         error_messages={
@@ -19,13 +36,13 @@ class MainSerializer(serializers.Serializer):
     )
 
     target_minutes = serializers.IntegerField(
-        min_value=3,
-        max_value=60,
+        min_value=5,
+        max_value=30,
         error_messages={
             "required": "이 필드는 필수 항목입니다.",
             "invalid": "유효한 정수를 입력하세요.",
-            "max_value": "분은 3분 이상 60분 이하로 설정해주세요.",
-            "min_value": "분은 3분 이상 60분 이하로 설정해주세요."
+            "max_value": "분은 5분 이상 30분 이하로 설정해주세요.",
+            "min_value": "분은 5분 이상 30분 이하로 설정해주세요."
         }
     )
 
