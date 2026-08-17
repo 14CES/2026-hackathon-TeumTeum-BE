@@ -17,6 +17,7 @@ class Record(models.Model):
     id = models.BigAutoField(primary_key=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='records')
     magazine = models.ForeignKey(Magazine, on_delete=models.SET_NULL, null=True, blank=True)
+    course = models.ForeignKey('teumteum.Course', on_delete=models.SET_NULL, null=True, blank=True, related_name='records')  # 다시 실행할 때 필요
     category = models.CharField(max_length=255)
     target_minutes = models.IntegerField()
     completed_minutes = models.IntegerField()

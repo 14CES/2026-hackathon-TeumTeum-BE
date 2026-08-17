@@ -5,9 +5,9 @@ from .models import UserProfile
 
 # 질문별 유효한 option_id 매핑 테이블 (1~12)
 ONBOARDING_DATA = {
-    1: [1, 2, 3, 4],
-    2: [5, 6, 7, 8],
-    3: [9, 10, 11, 12]
+    1: [1, 2, 3, 4],     # 읽기, 듣기, 스트레칭, 마음 정리
+    2: [5, 6, 7, 8],     # 이동 중, 약속 전, 휴식 중, 업무·수업 중
+    3: [9, 10, 11, 12]   # 피부, 몸, 마음, 수면
 }
 
 ALL_OPTION_IDS = {opt for opts in ONBOARDING_DATA.values() for opt in opts}
@@ -63,6 +63,8 @@ class OnboardingAnswerSerializer(serializers.Serializer):
         user, _ = User.objects.get_or_create(guest_uuid=guest_uuid)
 
         answers_dict = {ans['question_id']: ans['option_ids'] for ans in answers}
+
+        # 질문 2: 자주 생기는 틈(status) / 질문 1: 관심 콘텐츠, 질문 3: 관심 웰니스(preferred_type)
         status_data = answers_dict.get(2, [])
         preferred_data = {
             "categories": answers_dict.get(1, []),

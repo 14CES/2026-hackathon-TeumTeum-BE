@@ -1,11 +1,13 @@
+import math
 import random
+import re
+
 from openai import OpenAI
 from django.conf import settings
 
 from onboarding.models import UserProfile
-from teumteum.models import MainAnswer,CourseContent
+from teumteum.models import MainAnswer, CourseContent, CourseExecution, WellnessArticleSource
 
-from services.news import get_news
 from services.youtube import search_youtube
 
 
@@ -15,23 +17,38 @@ client = OpenAI(
 
 
 ONBOARDING_CATEGORY_MAP = {
-    1: "마음-틈",
-    2: "몸-틈",
-    3: "준비-틈",
+    1: "읽기",
+    2: "듣기",
+    3: "스트레칭",
+    4: "마음 정리",
 }
 
 ONBOARDING_STATUS_MAP = {
-    4: "이동할 때",
-    5: "약속 전에",
-    6: "휴식할 때",
-    7: "업무 및 공부 중에",
+    5: "이동 중",
+    6: "약속 전",
+    7: "휴식 중",
+    8: "업무·수업 중",
 }
 
 ONBOARDING_TOPIC_MAP = {
-    8: "트렌드·이슈",
-    9: "멘탈 케어",
-    10: "건강",
-    11: "휴식",
+    9: "피부",
+    10: "몸",
+    11: "마음",
+    12: "수면",
+}
+
+CHARS_PER_MINUTE = 400
+
+YOUTUBE_SEARCH_CONTENT_TYPES = {
+    "듣기",
+    "스트레칭",
+    "마음 정리",
+}
+
+SATISFACTION_SCORES = {
+    "good": 1,
+    "neutral": 0,
+    "bad": -1,
 }
 
 
@@ -73,6 +90,15 @@ def get_user_context(user):
         .first()
     )
 
+    # 최근 평가 이력 (최신순, 최대 5개)
+    recent_satisfaction = list(
+        CourseExecution.objects
+        .filter(user=user)
+        .exclude(satisfaction__isnull=True)
+        .order_by("-ended_at")
+        .values_list("satisfaction", flat=True)[:5]
+    )
+
     # 메인 질문 답변이 없는 경우
     if not main_answer:
         return {
@@ -82,15 +108,34 @@ def get_user_context(user):
             "main_situation": None,
             "other_content": None,
             "content_types": [],
+            "next_schedule": None,
+            "next_schedule_other_content": None,
+            "current_state": [],
+            "recent_satisfaction": recent_satisfaction,
             "target_minutes": user.target_minutes,
         }
 
-    # 1번 메인 질문 답변
+    # 1번 질문 답변: 장소
     main_situation = main_answer.situation_option.content
 
-    # 2번 메인 질문 답변들
+    # 2번 질문 답변: 회복 방식
     content_types = list(
         main_answer.preferred_options.values_list(
+            "content",
+            flat=True
+        )
+    )
+
+    # 3번 질문 답변: 다음 일정
+    next_schedule = (
+        main_answer.next_schedule_option.content
+        if main_answer.next_schedule_option
+        else None
+    )
+
+    # 4번 질문 답변: 현재 상태
+    current_state = list(
+        main_answer.current_state_options.values_list(
             "content",
             flat=True
         )
@@ -103,39 +148,99 @@ def get_user_context(user):
         "main_situation": main_situation,
         "other_content": main_answer.other_content,
         "content_types": content_types,
+        "next_schedule": next_schedule,
+        "next_schedule_other_content": main_answer.next_schedule_other_content,
+        "current_state": current_state,
+        "recent_satisfaction": recent_satisfaction,
         "target_minutes": user.target_minutes,
     }
 
 
+def get_topic_satisfaction_scores(user):
+    """
+    평가가 달린 지난 코스의 읽기 콘텐츠 주제(topics)별로
+    좋았어요/보통이에요/별로예요 평가를 점수로 합산한다.
+    """
+
+    scores = {}
+
+    rated_executions = (
+        CourseExecution.objects
+        .filter(user=user)
+        .exclude(satisfaction__isnull=True)
+        .select_related("course")
+    )
+
+    for execution in rated_executions:
+
+        score = SATISFACTION_SCORES.get(execution.satisfaction, 0)
+
+        if score == 0:
+            continue
+
+        article_contents = CourseContent.objects.filter(
+            course=execution.course,
+            content_type="article",
+        ).exclude(
+            source_article__isnull=True
+        ).select_related("source_article")
+
+        for content in article_contents:
+            for topic in content.source_article.topics:
+                scores[topic] = scores.get(topic, 0) + score
+
+    return scores
+
+
 def generate_search_queries(
     situation,
+    next_schedule,
+    current_state,
     interests,
+    onboarding_status,
+    recent_satisfaction,
     content_type,
-    search_target,
     target_minutes
 ):
     prompt = f"""
-너는 사용자의 취향에 맞는 콘텐츠를 찾기 위한
+너는 사용자의 취향과 지금 상황에 맞는 유튜브 영상을 찾기 위한
 검색 API용 검색어를 생성하는 역할이다.
 
-[사용자 상황]
+[사용자가 있는 장소]
 {situation}
 
-[사용자 관심사]
-{", ".join(interests)}
+[다음 일정]
+{next_schedule or "정보 없음"}
 
-[사용자가 선택한 콘텐츠 유형]
+[현재 몸·마음 상태]
+{", ".join(current_state) if current_state else "정보 없음"}
+
+[사용자 관심사 (온보딩에서 선택)]
+{", ".join(interests) if interests else "정보 없음"}
+
+[평소 틈이 자주 생기는 순간 (온보딩에서 선택)]
+{", ".join(onboarding_status) if onboarding_status else "정보 없음"}
+
+[최근 코스 만족도 (최근순, 최대 5개)]
+{", ".join(recent_satisfaction) if recent_satisfaction else "정보 없음"}
+
+[사용자가 선택한 회복 방식]
 {content_type}
-
-[실제로 검색할 콘텐츠 종류]
-{search_target}
 
 [사용 가능 시간]
 약 {target_minutes}분
 
 [작업]
-사용자의 관심사와 상황을 참고하여
+사용자의 관심사, 현재 상태, 다음 일정, 장소를 종합적으로 참고하여
 검색 API에 사용할 수 있는 한국어 검색어를 5개 만들어라.
+
+특히 [현재 몸·마음 상태]와 [다음 일정]을 우선적으로 반영한다.
+예를 들어 "피곤해요"가 포함되면 피로 회복·에너지 충전 관련 키워드를,
+"몸이 뻐근해요"가 포함되면 스트레칭·이완 관련 키워드를,
+"긴장돼요"나 다음 일정이 "약속"이면 마음을 편안하게 하는 키워드를 우선 고려한다.
+
+[최근 코스 만족도]에 "bad"가 많다면 최근과는 다른 새로운 결의 키워드를 시도하고,
+"good"이 많다면 비슷한 결의 키워드를 우선 고려한다.
 
 각 검색어는 서로 다른 주제이지만
 사용자의 관심사와 관련되어야 한다.
@@ -152,21 +257,6 @@ def generate_search_queries(
 "스트레스 관리", "불안 증상", "수면 개선"처럼
 여러 단어로 이루어진 검색어를 만들지 않는다.
 
-"마음 치유 책"처럼 지나치게 구체적인 검색어도 만들지 않는다.
-
-[콘텐츠 종류별 기준]
-
-- 읽기 콘텐츠:
-실제 뉴스 기사에서 검색 가능한
-구체적이고 일반적인 핵심 키워드를 만든다.
-
-예:
-멘탈 케어 → 스트레스, 불안, 수면, 정신건강, 심리, 명상, 마음챙김, 휴식, 웰빙, 자기관리
-건강 → 운동, 건강, 식단, 질병, 생활습관, 웰니스, 건강관리, 체력, 피로회복, 스트레칭, 걷기, 요가
-휴식 → 휴식, 여가, 힐링, 여행, 취미, 재충전, 웰니스, 라이프스타일
-트렌드·이슈 → 사회, 기술, 문화, 소비, 경제, 라이프스타일, 웰니스 트렌드
-
-- 유튜브:
 사용자가 실제로 시청하거나 따라 할 수 있는
 영상 콘텐츠를 찾기 위한 핵심 키워드를 만든다.
 
@@ -196,10 +286,14 @@ def generate_search_queries(
     ]
 
     return queries[:5]
-    
+
 
 
 def generate_user_search_queries(user):
+    """
+    회복 방식 중 유튜브로 찾을 수 있는 유형(듣기/스트레칭/마음 정리)에 대해서만
+    검색어를 생성한다. "읽기"는 팀 원문 풀에서 고르므로 검색어가 필요 없다.
+    """
 
     context = get_user_context(user)
 
@@ -213,20 +307,30 @@ def generate_user_search_queries(user):
     if context["other_content"]:
         situation = context["other_content"]
 
+    next_schedule = context["next_schedule"]
+
+    if context["next_schedule_other_content"]:
+        next_schedule = context["next_schedule_other_content"]
+
+    current_state = context["current_state"]
+    onboarding_status = context["onboarding_status"]
+    recent_satisfaction = context["recent_satisfaction"]
+
     queries = {}
 
     for content_type in context["content_types"]:
 
-        if content_type == "독서":
-            search_target = "읽기 콘텐츠"
-        else:
-            search_target = "유튜브"
+        if content_type not in YOUTUBE_SEARCH_CONTENT_TYPES:
+            continue
 
         search_queries = generate_search_queries(
             situation=situation,
+            next_schedule=next_schedule,
+            current_state=current_state,
             interests=interests,
+            onboarding_status=onboarding_status,
+            recent_satisfaction=recent_satisfaction,
             content_type=content_type,
-            search_target=search_target,
             target_minutes=context["target_minutes"]
         )
 
@@ -235,72 +339,157 @@ def generate_user_search_queries(user):
     return queries
 
 
-def summarize_content(text, estimated_minutes):
+def _parse_brief_sections(text):
+    sections = {"title": "", "body": "", "action": "", "question": ""}
+
+    pattern = r"\[(TITLE|BODY|ACTION|QUESTION)\]"
+    parts = re.split(pattern, text)
+
+    for i in range(1, len(parts), 2):
+        key = parts[i].lower()
+        content = parts[i + 1].strip() if i + 1 < len(parts) else ""
+        sections[key] = content
+
+    return sections
+
+
+def generate_personalized_brief(source_content, source_title, situation, interests, estimated_minutes):
     """
-    기사 본문을 예상 읽기 시간에 맞는 분량으로 요약한다.
-    1분당 400자를 기준으로 한다.
+    팀이 쓴 웰니스 원문을 사용자 상황에 맞게 압축·재구성한다.
+    제목, 본문, 실천 팁, 짧은 질문을 함께 만든다.
     """
 
-    target_chars = estimated_minutes * 400
-
-    # 이미 목표 분량 이하라면 요약하지 않음
-    if len(text) <= target_chars:
-        return text
+    target_chars = estimated_minutes * CHARS_PER_MINUTE
 
     prompt = f"""
-    너는 짧은 틈 시간에 읽을 수 있도록 기사 내용을 요약하는 역할을 한다.
+너는 웰니스 원문을 사용자의 지금 상황에 맞게 짧게 재구성하는 역할이다.
 
-    [기사 원문]
-    {text}
+[원문 제목]
+{source_title}
 
-    [목표 읽기 시간]
-    약 {estimated_minutes}분
+[원문]
+{source_content}
 
-    [목표 분량]
-    약 {target_chars}자
+[사용자 상황]
+{situation or "정보 없음"}
 
-    [작업]
-    반드시 목표 글자 수에 최대한 가깝게 작성한다.
-    최소 {int(target_chars * 0.8)}자 이상, 최대 {int(target_chars * 1.2)}자 이하를 목표로 한다.
+[사용자 관심사]
+{", ".join(interests) if interests else "정보 없음"}
 
-    기사의 핵심 사실, 주요 주장, 중요한 수치와 맥락을 유지한다.
-    불필요한 반복이나 장황한 표현만 제거한다.
-    내용을 지나치게 압축하지 않는다.
+[목표 분량]
+약 {target_chars}자 (읽는 시간 약 {estimated_minutes}분)
+최소 {int(target_chars * 0.8)}자 이상, 최대 {int(target_chars * 1.2)}자 이하로 작성한다.
 
-    [출력 규칙]
-    요약된 본문만 출력한다.
-    제목이나 설명을 추가하지 않는다.
-    마크다운을 사용하지 않는다.
-    """
+[작업]
+1. 사용자 상황과 관심사에 맞춘 제목을 새로 만든다.
+2. 원문의 핵심 내용을 목표 분량에 맞게 압축한다. 마크다운은 쓰지 않는다.
+3. 지금 바로 할 수 있는 실천 한 가지를 한 문장으로 만든다.
+4. 사용자에게 짧게 던질 질문을 한 문장 만든다.
+
+[출력 형식]
+아래 마커를 그대로 사용해 순서대로 출력한다. 다른 설명은 추가하지 않는다.
+
+[TITLE]
+(제목)
+[BODY]
+(본문)
+[ACTION]
+(실천 한 가지)
+[QUESTION]
+(질문)
+"""
 
     try:
         response = client.responses.create(
             model="gpt-5-mini",
             input=prompt
         )
+        sections = _parse_brief_sections(response.output_text.strip())
     except Exception as e:
-        print("기사 요약 실패, 원문 사용:", e)
-        return text
+        print("웰니스 브리프 생성 실패, 원문 사용:", e)
+        sections = {}
 
-    return response.output_text.strip()
+    return {
+        "title": sections.get("title") or source_title,
+        "content": sections.get("body") or source_content[:target_chars],
+        "action_tip": sections.get("action") or None,
+        "question": sections.get("question") or None,
+    }
+
+
+def select_wellness_articles(user, interests, max_count=3):
+    """
+    관심사에 맞는 웰니스 원문을 이 사용자가 아직 안 본 것 위주로 고른다.
+    맞는 원문이 부족하면 관심사 무관하게, 그래도 부족하면 재사용까지 허용한다.
+    """
+
+    used_ids = set(
+        CourseContent.objects.filter(
+            course__user=user,
+            content_type="article",
+        ).exclude(
+            source_article__isnull=True
+        ).values_list("source_article_id", flat=True)
+    )
+
+    pool = list(WellnessArticleSource.objects.filter(is_active=True))
+
+    unused = [article for article in pool if article.id not in used_ids]
+
+    matched = [
+        article for article in unused
+        if interests and set(article.topics) & set(interests)
+    ]
+    unmatched = [article for article in unused if article not in matched]
+
+    # 평가 이력에서 좋았던 주제는 앞으로, 별로였던 주제는 뒤로 보낸다
+    topic_scores = get_topic_satisfaction_scores(user)
+
+    def satisfaction_score(article):
+        return sum(topic_scores.get(topic, 0) for topic in article.topics)
+
+    random.shuffle(matched)
+    random.shuffle(unmatched)
+    matched.sort(key=satisfaction_score, reverse=True)
+    unmatched.sort(key=satisfaction_score, reverse=True)
+
+    # 관심사에 맞는 원문을 우선하되, 부족하면 안 본 나머지로 채우고,
+    # 그래도 부족하면 이미 본 원문까지 재사용한다.
+    candidates = matched + unmatched
+
+    if len(candidates) < max_count:
+        reused = [article for article in pool if article not in candidates]
+        random.shuffle(reused)
+        candidates += reused
+
+    selected = candidates[:max_count]
+
+    result = []
+
+    for article in selected:
+        estimated_minutes = max(1, math.ceil(len(article.content) / CHARS_PER_MINUTE))
+
+        result.append({
+            "source_article_id": article.id,
+            "title": article.title,
+            "content": article.content,
+            "source": "틈틈 웰니스 노트",
+            "original_estimated_minutes": estimated_minutes,
+            "estimated_minutes": estimated_minutes,
+        })
+
+    return result
 
 
 def get_recommended_contents(user):
 
+    context = get_user_context(user)
+
+    interests = context["categories"] + context["topics"]
+
     queries = generate_user_search_queries(user)
 
-    news_contents = []
     youtube_contents = []
-
-    # 이 사용자가 이전에 추천받은 뉴스 CourseContent (재사용 후보)
-    old_news_qs = CourseContent.objects.filter(
-        course__user=user,
-        content_type="article"
-    ).exclude(
-        content_url__isnull=True
-    ).exclude(
-        content_url=""
-    )
 
     # 이 사용자가 이전에 추천받은 유튜브 CourseContent (재사용 후보)
     old_youtube_qs = CourseContent.objects.filter(
@@ -312,111 +501,42 @@ def get_recommended_contents(user):
         video_url=""
     )
 
-    used_news_urls = set(
-        old_news_qs.values_list("content_url", flat=True)
-    )
-
     used_youtube_urls = set(
         old_youtube_qs.values_list("video_url", flat=True)
     )
 
-    print("===== 이전 추천 콘텐츠 =====")
-    print("이미 추천한 뉴스 수:", len(used_news_urls))
+    print("===== 이전 추천 유튜브 =====")
     print("이미 추천한 유튜브 수:", len(used_youtube_urls))
 
-    seen_news_urls = set()
     seen_youtube_urls = set()
 
     for content_type, search_queries in queries.items():
 
         for query in search_queries:
 
-            if content_type == "독서":
+            results = search_youtube(query, max_results=5)
 
-                results = get_news(query, max_results=5)
+            for content in results:
+                url = content.get("url")
 
-                for content in results:
-                    url = content.get("url")
+                if not url:
+                    continue
 
-                    if not url:
-                        continue
+                if url in used_youtube_urls:
+                    continue
 
-                    if url in used_news_urls:
-                        continue
+                if url in seen_youtube_urls:
+                    continue
 
-                    if url in seen_news_urls:
-                        continue
+                seen_youtube_urls.add(url)
+                youtube_contents.append(content)
 
-                    seen_news_urls.add(url)
-                    news_contents.append(content)
-
-            elif content_type in [
-                "듣기",
-                "스트레칭",
-                "마인드컨트롤"
-            ]:
-
-                results = search_youtube(query, max_results=5)
-
-                for content in results:
-                    url = content.get("url")
-
-                    if not url:
-                        continue
-
-                    if url in used_youtube_urls:
-                        continue
-
-                    if url in seen_youtube_urls:
-                        continue
-
-                    seen_youtube_urls.add(url)
-                    youtube_contents.append(content)
-
-    print("===== 중복 제거 후 새 콘텐츠 후보 =====")
-    print("새 뉴스 후보 수:", len(news_contents))
+    print("===== 중복 제거 후 새 유튜브 후보 =====")
     print("새 유튜브 후보 수:", len(youtube_contents))
 
-    # ---- 여기서부터 재사용 로직 ----
+    # ---- 유튜브가 부족하면 이전 추천에서 재사용 ----
 
-    MIN_NEWS_COUNT = 3
     MIN_YOUTUBE_COUNT = 3
-
-    if len(news_contents) < MIN_NEWS_COUNT:
-
-        needed = MIN_NEWS_COUNT - len(news_contents)
-
-        # 이미 새 후보로 뽑힌 것 제외하고, 이전 콘텐츠 중 랜덤하게 채움
-        reusable_news = [
-            content for content in old_news_qs
-            if content.content_url not in seen_news_urls
-            and content.content
-        ]
-
-        random.shuffle(reusable_news)
-
-        added = 0
-
-        for old_content in reusable_news:
-
-            if added >= needed:
-                break
-
-            news_contents.append({
-                "title": old_content.title,
-                "description": old_content.description,
-                "content": old_content.content,
-                "source": old_content.source,
-                "url": old_content.content_url,
-                "image_url": old_content.image_url,
-                "original_estimated_minutes": old_content.estimated_minutes,
-                "estimated_minutes": old_content.estimated_minutes,
-            })
-
-            seen_news_urls.add(old_content.content_url)
-            added += 1
-
-        print(f"뉴스 부족 → 이전 추천 뉴스에서 추가: {added}")
 
     if len(youtube_contents) < MIN_YOUTUBE_COUNT:
 
@@ -450,11 +570,13 @@ def get_recommended_contents(user):
 
         print(f"유튜브 부족 → 이전 추천 유튜브에서 추가: {added}")
 
-    print("===== 최종 후보 (재사용 포함) =====")
-    print("최종 뉴스 후보 수:", len(news_contents))
+    article_contents = select_wellness_articles(user, interests, max_count=3)
+
+    print("===== 최종 후보 =====")
+    print("최종 원문 후보 수:", len(article_contents))
     print("최종 유튜브 후보 수:", len(youtube_contents))
 
     return {
-        "news": news_contents,
+        "articles": article_contents,
         "youtube": youtube_contents,
     }
