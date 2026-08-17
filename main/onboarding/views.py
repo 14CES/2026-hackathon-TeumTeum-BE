@@ -37,13 +37,13 @@ class OnboardingQuestionView(APIView):
                 {
                     "order": 3,
                     "question_id": 3,
-                    "question": "요즘 어떤 주제에 마음이 가시나요?",
-                    "description": "가장 흥미로운 주제 3가지를 선택해 주세요!",
+                    "question": "관심 있는 웰니스 분야를 선택해주세요.",
+                    "description": "가장 관심 있는 웰니스 주제를 선택해 주세요!",
                     "options": [
-                        {"option_id": 9, "content": "트렌드 토픽"},
-                        {"option_id": 10, "content": "멘탈 케어"},
-                        {"option_id": 11, "content": "운동"},
-                        {"option_id": 12, "content": "휴식"}
+                        {"option_id": 9, "content": "피부"},
+                        {"option_id": 10, "content": "몸"},
+                        {"option_id": 11, "content": "마음"},
+                        {"option_id": 12, "content": "수면"}
                     ]
                 }
             ]
