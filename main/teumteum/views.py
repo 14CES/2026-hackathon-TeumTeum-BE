@@ -135,10 +135,28 @@ def start_course_execution(user, course):
     ).first()
 
     if active_execution:
-        return Response(
-            {"detail": "현재 실행 중인 코스가 있습니다."},
-            status=status.HTTP_409_CONFLICT
-        )
+
+        # 설정 시간이 이미 다 지났는데 앱에서 종료 처리를 못 받은 경우
+        # (강제 종료, 네트워크 끊김 등) -> 자동으로 중단 처리하고 새 실행을 허용한다
+        elapsed_seconds = (
+            timezone.now() - active_execution.started_at
+        ).total_seconds()
+
+        projected_used_seconds = active_execution.used_seconds + elapsed_seconds
+
+        if projected_used_seconds >= active_execution.target_seconds:
+            active_execution.used_seconds = active_execution.target_seconds
+            active_execution.ended_at = timezone.now()
+            active_execution.status = "stopped"
+            active_execution.save()
+
+            record_weekly_usage(user, active_execution.used_seconds)
+
+        else:
+            return Response(
+                {"detail": "현재 실행 중인 코스가 있습니다."},
+                status=status.HTTP_409_CONFLICT
+            )
 
     started_at = timezone.now()
 
@@ -774,6 +792,13 @@ class CourseViewSet(viewsets.ViewSet):
         )
 
         execution.used_seconds += elapsed_seconds
+
+        # 아직 설정 시간이 다 안 지났으면 완료 처리 거부 (중간에 그만두려면 stop을 써야 함)
+        if execution.used_seconds < execution.target_seconds:
+            return Response(
+                {"detail": "아직 코스 시간이 다 되지 않았습니다. 중간에 그만두려면 stop을 사용해주세요."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # 최대 설정 시간 초과 방지
         if execution.used_seconds > execution.target_seconds:
