@@ -131,9 +131,9 @@ def select_best_contents(
                 total_minutes - target_minutes
             )
 
-            # 선택된 기사들의 전체 원문 길이
+            # 선택된 기사들의 전체 원문 길이 (AI가 새로 쓸 자리는 원문이 없으므로 0으로 취급)
             article_length = sum(
-                len(content.get("content", ""))
+                len(content.get("content") or "")
                 for content in article_combination
             )
 
@@ -156,6 +156,79 @@ def select_best_contents(
                 best_combinations.append(contents)
 
     return random.choice(best_combinations) if best_combinations else None
+
+
+# 전체 목표 시간(target_minutes)에 따른 추천 모듈 개수 범위 (최소, 최대)
+# 오디오가이드/다음준비 같은 활동 모듈도 이 개수에 포함된다.
+MODULE_COUNT_TABLE = [
+    (5, 7, 1, 2),
+    (8, 12, 2, 2),
+    (13, 17, 2, 3),
+    (18, 22, 3, 3),
+    (23, 26, 3, 4),
+    (27, 30, 4, 4),
+]
+
+
+def get_module_count_range(target_minutes):
+    """
+    target_minutes가 표의 어느 구간에 속하는지 찾아 (최소 개수, 최대 개수)를 반환한다.
+    표 범위를 벗어나면 가장 가까운 쪽 경계값을 그대로 쓴다.
+    """
+
+    for min_minutes, max_minutes, min_count, max_count in MODULE_COUNT_TABLE:
+        if min_minutes <= target_minutes <= max_minutes:
+            return min_count, max_count
+
+    if target_minutes < MODULE_COUNT_TABLE[0][0]:
+        return MODULE_COUNT_TABLE[0][2], MODULE_COUNT_TABLE[0][3]
+
+    return MODULE_COUNT_TABLE[-1][2], MODULE_COUNT_TABLE[-1][3]
+
+
+def select_best_contents_in_range(
+    article_contents,
+    youtube_contents,
+    content_types,
+    target_minutes,
+    min_count,
+    max_count,
+):
+    """
+    min_count~max_count 범위의 개수를 각각 select_best_contents로 시도해보고,
+    target_minutes에 가장 가깝게 맞는 조합을 고른다. 시간 차이가 같으면 개수가 더 많은 쪽을 고른다.
+    """
+
+    best_contents = None
+    best_diff = None
+
+    for count in range(min_count, max_count + 1):
+        contents = select_best_contents(
+            article_contents=article_contents,
+            youtube_contents=youtube_contents,
+            content_types=content_types,
+            target_minutes=target_minutes,
+            total_count=count,
+        )
+
+        if contents is None:
+            continue
+
+        total_minutes = sum(
+            content.get("original_estimated_minutes", 0)
+            for content in contents
+        )
+        diff = abs(total_minutes - target_minutes)
+
+        if (
+            best_diff is None
+            or diff < best_diff
+            or (diff == best_diff and len(contents) > len(best_contents))
+        ):
+            best_diff = diff
+            best_contents = contents
+
+    return best_contents
 
 
 def allocate_content_minutes(contents, target_minutes):

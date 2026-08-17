@@ -417,10 +417,137 @@ def generate_personalized_brief(source_content, source_title, situation, interes
     }
 
 
+def generate_original_brief(situation, interests, current_state, estimated_minutes):
+    """
+    팀 원문 풀에 안 본 것이 더 없을 때, 재사용 대신 AI가 처음부터 새로 쓰는 웰니스 브리프.
+    형식은 generate_personalized_brief와 동일하다.
+    """
+
+    target_chars = estimated_minutes * CHARS_PER_MINUTE
+
+    prompt = f"""
+너는 웰니스 코치이자 에디터다. 사용자의 지금 상황에 맞는 웰니스 읽을거리를 처음부터 새로 쓴다.
+
+[사용자 상황]
+{situation or "정보 없음"}
+
+[사용자 관심사]
+{", ".join(interests) if interests else "정보 없음"}
+
+[현재 몸·마음 상태]
+{", ".join(current_state) if current_state else "정보 없음"}
+
+[목표 분량]
+약 {target_chars}자 (읽는 시간 약 {estimated_minutes}분)
+최소 {int(target_chars * 0.8)}자 이상, 최대 {int(target_chars * 1.2)}자 이하로 작성한다.
+
+[작업]
+1. 사용자 관심사와 현재 상태에 맞는 웰니스 주제를 하나 정하고, 그에 맞춘 제목을 만든다.
+2. 그 주제에 대해 일반적으로 알려진 사실과 조언을 바탕으로 본문을 새로 쓴다.
+   특정 기사나 문헌을 인용하지 않는다. 과장되거나 검증되지 않은 의학적 주장은 하지 않는다.
+   마크다운은 쓰지 않는다.
+3. 지금 바로 할 수 있는 실천 한 가지를 한 문장으로 만든다.
+4. 사용자에게 짧게 던질 질문을 한 문장 만든다.
+
+[출력 형식]
+아래 마커를 그대로 사용해 순서대로 출력한다. 다른 설명은 추가하지 않는다.
+
+[TITLE]
+(제목)
+[BODY]
+(본문)
+[ACTION]
+(실천 한 가지)
+[QUESTION]
+(질문)
+"""
+
+    try:
+        response = client.responses.create(
+            model="gpt-5-mini",
+            input=prompt
+        )
+        sections = _parse_brief_sections(response.output_text.strip())
+    except Exception as e:
+        print("AI 원문 생성 실패:", e)
+        sections = {}
+
+    return {
+        "title": sections.get("title") or "오늘의 웰니스 브리프",
+        "content": sections.get("body") or "잠시 숨을 고르고, 지금 몸과 마음의 상태를 가만히 살펴보세요.",
+        "action_tip": sections.get("action") or None,
+        "question": sections.get("question") or None,
+    }
+
+
+def generate_next_prep_brief(next_schedule, situation, estimated_minutes):
+    """
+    이 틈이 끝나면 이어질 다음 일정(next_schedule)을 앞두고,
+    짧게 마음을 다잡을 수 있는 준비 멘트와 성찰 질문을 만든다.
+    형식은 generate_personalized_brief와 동일하다.
+    """
+
+    target_chars = estimated_minutes * CHARS_PER_MINUTE
+
+    prompt = f"""
+너는 웰니스 코치다. 사용자는 지금 짧은 틈새 시간을 보내고 있고, 이 틈이 끝나면 아래 일정을 앞두고 있다.
+
+[다음 일정]
+{next_schedule or "정보 없음"}
+
+[사용자 지금 상황]
+{situation or "정보 없음"}
+
+[목표 분량]
+약 {target_chars}자 (약 {estimated_minutes}분 분량)
+
+[작업]
+1. 다음 일정을 더 편안한 마음으로 시작할 수 있도록 짧은 준비 멘트를 쓴다.
+   특정 기사나 문헌을 인용하지 않는다. 과장되거나 검증되지 않은 주장은 하지 않는다.
+   마크다운은 쓰지 않는다.
+2. 지금 바로 해볼 수 있는 준비 행동 한 가지를 한 문장으로 만든다.
+3. 사용자가 스스로 돌아볼 수 있는 짧고 개방적인 성찰 질문을 한 문장 만든다.
+
+[출력 형식]
+아래 마커를 그대로 사용해 순서대로 출력한다. 다른 설명은 추가하지 않는다.
+
+[TITLE]
+(제목)
+[BODY]
+(준비 멘트)
+[ACTION]
+(준비 행동 한 가지)
+[QUESTION]
+(성찰 질문)
+"""
+
+    try:
+        response = client.responses.create(
+            model="gpt-5-mini",
+            input=prompt
+        )
+        sections = _parse_brief_sections(response.output_text.strip())
+    except Exception as e:
+        print("다음 준비 브리프 생성 실패:", e)
+        sections = {}
+
+    return {
+        "title": sections.get("title") or "다음 일정 준비하기",
+        "content": sections.get("body") or "잠시 숨을 고르고, 다음 일정을 편안한 마음으로 맞이해보세요.",
+        "action_tip": sections.get("action") or None,
+        "question": sections.get("question") or None,
+    }
+
+
+DEFAULT_GENERATED_MINUTES = 2  # AI가 처음부터 새로 쓸 때 기본으로 잡는 분량
+
+
 def select_wellness_articles(user, interests, max_count=3):
     """
     관심사에 맞는 웰니스 원문을 이 사용자가 아직 안 본 것 위주로 고른다.
-    맞는 원문이 부족하면 관심사 무관하게, 그래도 부족하면 재사용까지 허용한다.
+    맞는 원문이 부족하면 관심사 무관하게 안 본 것으로 채우고,
+    그래도 부족하면 이미 본 원문을 재사용하는 대신 AI가 그 자리에서 새로 쓰도록
+    "needs_generation" 표시가 된 자리를 채워서 반환한다.
     """
 
     used_ids = set(
@@ -453,29 +580,36 @@ def select_wellness_articles(user, interests, max_count=3):
     matched.sort(key=satisfaction_score, reverse=True)
     unmatched.sort(key=satisfaction_score, reverse=True)
 
-    # 관심사에 맞는 원문을 우선하되, 부족하면 안 본 나머지로 채우고,
-    # 그래도 부족하면 이미 본 원문까지 재사용한다.
-    candidates = matched + unmatched
-
-    if len(candidates) < max_count:
-        reused = [article for article in pool if article not in candidates]
-        random.shuffle(reused)
-        candidates += reused
-
-    selected = candidates[:max_count]
+    # 관심사에 맞는 원문을 우선하되, 부족하면 안 본 나머지로 채운다.
+    # 재사용은 하지 않고, 그래도 부족한 자리는 AI가 새로 쓰도록 남겨둔다.
+    candidates = (matched + unmatched)[:max_count]
 
     result = []
 
-    for article in selected:
+    for article in candidates:
         estimated_minutes = max(1, math.ceil(len(article.content) / CHARS_PER_MINUTE))
 
         result.append({
             "source_article_id": article.id,
             "title": article.title,
             "content": article.content,
-            "source": "틈틈 웰니스 노트",
+            "source": article.source,
             "original_estimated_minutes": estimated_minutes,
             "estimated_minutes": estimated_minutes,
+        })
+
+    # 안 본 원문으로 다 못 채우면, 남은 자리는 AI가 새로 쓰도록 표시해둔다
+    needed = max_count - len(result)
+
+    for _ in range(needed):
+        result.append({
+            "source_article_id": None,
+            "needs_generation": True,
+            "title": None,
+            "content": None,
+            "source": "틈틈 AI",
+            "original_estimated_minutes": DEFAULT_GENERATED_MINUTES,
+            "estimated_minutes": DEFAULT_GENERATED_MINUTES,
         })
 
     return result
@@ -570,7 +704,8 @@ def get_recommended_contents(user):
 
         print(f"유튜브 부족 → 이전 추천 유튜브에서 추가: {added}")
 
-    article_contents = select_wellness_articles(user, interests, max_count=3)
+    # 분당 모듈 개수 표의 최대치(4개)까지 고를 수 있도록 후보를 충분히 확보한다
+    article_contents = select_wellness_articles(user, interests, max_count=4)
 
     print("===== 최종 후보 =====")
     print("최종 원문 후보 수:", len(article_contents))

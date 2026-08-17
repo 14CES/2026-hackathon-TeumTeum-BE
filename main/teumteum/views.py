@@ -29,9 +29,10 @@ from .models import (
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 
-from services.openai_service import get_user_context, get_recommended_contents, generate_personalized_brief
+from services.openai_service import get_user_context, get_recommended_contents, generate_personalized_brief, generate_original_brief, generate_next_prep_brief
 from services.course import (
-    select_best_contents,
+    select_best_contents_in_range,
+    get_module_count_range,
     allocate_content_minutes,
     select_activity_module,
     YOUTUBE_CONTENT_TYPES,
@@ -63,6 +64,25 @@ def record_weekly_usage(user, seconds):
 
     weekly_usage.total_minutes += minutes
     weekly_usage.save()
+
+
+NEXT_PREP_MINUTES = 1
+NEXT_SCHEDULE_SKIP_VALUES = {"없음"}
+
+
+def pick_next_prep_text(context):
+    # 오디오가이드/스트레칭 등 활동 모듈이 이미 자리를 차지했다면 호출하는 쪽에서 이 함수를 부르지 않는다.
+    # 다음 일정이 "없음"이거나 아예 없으면 준비할 것이 없으므로 건너뛴다.
+    next_schedule = context["next_schedule"]
+
+    if not next_schedule or next_schedule in NEXT_SCHEDULE_SKIP_VALUES:
+        return None
+
+    # 최소 1분은 다른 콘텐츠(읽기/유튜브)에 남겨둔다
+    if context["target_minutes"] - NEXT_PREP_MINUTES <= 0:
+        return None
+
+    return context["next_schedule_other_content"] or next_schedule
 
 
 def pick_activity_module_slot(context, situation):
@@ -253,7 +273,14 @@ class MainQuestionViewSet(viewsets.ViewSet):
 
     # GET /main/questions
     def list(self, request):
-        questions = Question.objects.prefetch_related("options").order_by("question_id")
+        # 화면에 보여줄 순서: 장소(1) -> 다음일정(3) -> 현재상태(4) -> 회복방식(2)
+        # question_id 자체(답변 저장 로직이 참조하는 값)는 그대로 두고, 노출 순서만 바꾼다.
+        display_order = [1, 3, 4, 2]
+
+        questions = list(
+            Question.objects.prefetch_related("options").filter(question_id__in=display_order)
+        )
+        questions.sort(key=lambda q: display_order.index(q.question_id))
 
         serializer = QuestionSerializer(questions, many=True)
 
@@ -404,20 +431,33 @@ class CourseViewSet(viewsets.ViewSet):
         # 5-1. 현재 상태에 맞는 활동 모듈(오디오가이드 등)이 있으면 한 자리 먼저 배정
         activity_module = pick_activity_module_slot(context, situation)
 
+        # 5-2. 활동 모듈이 없을 때만, 다음 일정 준비 콘텐츠로 한 자리를 채울지 확인
+        next_prep_text = None if activity_module else pick_next_prep_text(context)
+
+        # 5-3. 전체 목표 시간 기준 추천 모듈 개수 범위 (활동 모듈/다음준비도 이 개수에 포함)
+        min_module_count, max_module_count = get_module_count_range(context["target_minutes"])
+
         if activity_module:
-            total_count = 2
+            total_min = max(min_module_count - 1, 0)
+            total_max = max(max_module_count - 1, 0)
             remaining_target_minutes = context["target_minutes"] - activity_module.estimated_minutes
+        elif next_prep_text:
+            total_min = max(min_module_count - 1, 0)
+            total_max = max(max_module_count - 1, 0)
+            remaining_target_minutes = context["target_minutes"] - NEXT_PREP_MINUTES
         else:
-            total_count = 3
+            total_min = min_module_count
+            total_max = max_module_count
             remaining_target_minutes = context["target_minutes"]
 
         # 6. target_minutes에 가장 가까운 나머지 콘텐츠 선택
-        selected_contents = select_best_contents(
+        selected_contents = select_best_contents_in_range(
             article_contents=article_contents,
             youtube_contents=youtube_contents,
             content_types=context["content_types"],
             target_minutes=remaining_target_minutes,
-            total_count=total_count,
+            min_count=total_min,
+            max_count=total_max,
         )
 
         if selected_contents is None:
@@ -443,6 +483,8 @@ class CourseViewSet(viewsets.ViewSet):
             title=f"{user.target_minutes}분 틈 활용법",
             description="추천이 마음에 들지 않는다면 바꿔보세요.",
             total_minutes=user.target_minutes,
+            place=context["main_situation"],
+            current_state=context["current_state"],
         )
 
         # 8. 선택된 콘텐츠 저장
@@ -457,10 +499,31 @@ class CourseViewSet(viewsets.ViewSet):
                 description=activity_module.description or "",
                 voice_script=activity_module.voice_script,
                 steps=activity_module.steps,
+                repeat_count=activity_module.repeat_count,
                 question=activity_module.question,
                 question_options=activity_module.question_options,
                 allow_text_input=activity_module.allow_text_input,
                 estimated_minutes=activity_module.estimated_minutes,
+            )
+            content_order += 1
+
+        elif next_prep_text:
+            prep = generate_next_prep_brief(
+                next_schedule=next_prep_text,
+                situation=situation,
+                estimated_minutes=NEXT_PREP_MINUTES,
+            )
+            CourseContent.objects.create(
+                course=course,
+                content_order=content_order,
+                content_type="reflection",
+                title=prep["title"],
+                description=prep["action_tip"] or "",
+                content=prep["content"],
+                voice_script=prep["content"],
+                question=prep["question"],
+                allow_text_input=True,
+                estimated_minutes=NEXT_PREP_MINUTES,
             )
             content_order += 1
 
@@ -469,13 +532,21 @@ class CourseViewSet(viewsets.ViewSet):
             # 읽기 콘텐츠
             if "source" in content:
 
-                brief = generate_personalized_brief(
-                    source_content=content.get("content") or "",
-                    source_title=content["title"],
-                    situation=situation,
-                    interests=interests,
-                    estimated_minutes=content["estimated_minutes"],
-                )
+                if content.get("needs_generation"):
+                    brief = generate_original_brief(
+                        situation=situation,
+                        interests=interests,
+                        current_state=context["current_state"],
+                        estimated_minutes=content["estimated_minutes"],
+                    )
+                else:
+                    brief = generate_personalized_brief(
+                        source_content=content.get("content") or "",
+                        source_title=content["title"],
+                        situation=situation,
+                        interests=interests,
+                        estimated_minutes=content["estimated_minutes"],
+                    )
 
                 CourseContent.objects.create(
                     course=course,
@@ -923,20 +994,33 @@ class CourseViewSet(viewsets.ViewSet):
         # 4-1. 현재 상태에 맞는 활동 모듈(오디오가이드 등)이 있으면 한 자리 먼저 배정
         activity_module = pick_activity_module_slot(context, situation)
 
+        # 4-2. 활동 모듈이 없을 때만, 다음 일정 준비 콘텐츠로 한 자리를 채울지 확인
+        next_prep_text = None if activity_module else pick_next_prep_text(context)
+
+        # 4-3. 전체 목표 시간 기준 추천 모듈 개수 범위 (활동 모듈/다음준비도 이 개수에 포함)
+        min_module_count, max_module_count = get_module_count_range(context["target_minutes"])
+
         if activity_module:
-            total_count = 2
+            total_min = max(min_module_count - 1, 0)
+            total_max = max(max_module_count - 1, 0)
             remaining_target_minutes = context["target_minutes"] - activity_module.estimated_minutes
+        elif next_prep_text:
+            total_min = max(min_module_count - 1, 0)
+            total_max = max(max_module_count - 1, 0)
+            remaining_target_minutes = context["target_minutes"] - NEXT_PREP_MINUTES
         else:
-            total_count = 3
+            total_min = min_module_count
+            total_max = max_module_count
             remaining_target_minutes = context["target_minutes"]
 
         # 5. 최종 나머지 콘텐츠 선택
-        selected_contents = select_best_contents(
+        selected_contents = select_best_contents_in_range(
             article_contents=article_contents,
             youtube_contents=youtube_contents,
             content_types=context["content_types"],
             target_minutes=remaining_target_minutes,
-            total_count=total_count,
+            min_count=total_min,
+            max_count=total_max,
         )
 
         print("===== refresh 선택 결과 =====")
@@ -969,6 +1053,8 @@ class CourseViewSet(viewsets.ViewSet):
             title=f"{user.target_minutes}분 틈 활용법",
             description="새로운 추천 코스입니다.",
             total_minutes=user.target_minutes,
+            place=context["main_situation"],
+            current_state=context["current_state"],
         )
 
         # 7. CourseContent 저장
@@ -983,6 +1069,7 @@ class CourseViewSet(viewsets.ViewSet):
                 description=activity_module.description or "",
                 voice_script=activity_module.voice_script,
                 steps=activity_module.steps,
+                repeat_count=activity_module.repeat_count,
                 question=activity_module.question,
                 question_options=activity_module.question_options,
                 allow_text_input=activity_module.allow_text_input,
@@ -990,17 +1077,45 @@ class CourseViewSet(viewsets.ViewSet):
             )
             content_order += 1
 
+        elif next_prep_text:
+            prep = generate_next_prep_brief(
+                next_schedule=next_prep_text,
+                situation=situation,
+                estimated_minutes=NEXT_PREP_MINUTES,
+            )
+            CourseContent.objects.create(
+                course=course,
+                content_order=content_order,
+                content_type="reflection",
+                title=prep["title"],
+                description=prep["action_tip"] or "",
+                content=prep["content"],
+                voice_script=prep["content"],
+                question=prep["question"],
+                allow_text_input=True,
+                estimated_minutes=NEXT_PREP_MINUTES,
+            )
+            content_order += 1
+
         for content in selected_contents:
 
             if "source" in content:
 
-                brief = generate_personalized_brief(
-                    source_content=content.get("content") or "",
-                    source_title=content["title"],
-                    situation=situation,
-                    interests=interests,
-                    estimated_minutes=content["estimated_minutes"],
-                )
+                if content.get("needs_generation"):
+                    brief = generate_original_brief(
+                        situation=situation,
+                        interests=interests,
+                        current_state=context["current_state"],
+                        estimated_minutes=content["estimated_minutes"],
+                    )
+                else:
+                    brief = generate_personalized_brief(
+                        source_content=content.get("content") or "",
+                        source_title=content["title"],
+                        situation=situation,
+                        interests=interests,
+                        estimated_minutes=content["estimated_minutes"],
+                    )
 
                 CourseContent.objects.create(
                     course=course,
