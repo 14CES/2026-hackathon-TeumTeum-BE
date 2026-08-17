@@ -61,6 +61,8 @@ class Course(models.Model):
     title = models.CharField(max_length=255)
     description = models.CharField(max_length=255)
     total_minutes = models.IntegerField()
+    place = models.CharField(max_length=50, null=True, blank=True)         # 생성 당시 장소 (마이페이지 패턴 분석용)
+    current_state = models.JSONField(default=list, blank=True)             # 생성 당시 현재 상태 (마이페이지 패턴 분석용)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -75,6 +77,7 @@ class WellnessArticleSource(models.Model):
     # 팀이 직접 쓴 웰니스 원문 풀. "읽기" 콘텐츠는 뉴스 API 대신 여기서 골라 AI가 재구성한다.
     title = models.CharField(max_length=255)
     content = models.TextField()
+    source = models.CharField(max_length=255, default="틈틈 자체 작성")  # 원문 출처 (매체명/URL, 자체 작성이면 "틈틈 자체 작성")
     topics = models.JSONField(default=list)   # 관심 웰니스 옵션과 매칭 (예: "피부", "몸", "마음", "수면")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -106,6 +109,7 @@ class CourseContent(models.Model):
 
     voice_script = models.TextField(null=True, blank=True)                     # TTS로 읽어줄 텍스트 (article 선택, audio_guide 추천)
     steps = models.JSONField(null=True, blank=True, default=list)              # 단계별 동작/호흡 타이밍 (stretch_guide, audio_guide)
+    repeat_count = models.IntegerField(default=1)                              # steps 세트를 몇 번 반복해야 estimated_minutes를 채우는지 (stretch_guide, audio_guide)
     question = models.CharField(max_length=255, null=True, blank=True)         # 질문 (reflection, skin_check)
     question_options = models.JSONField(null=True, blank=True, default=list)   # 질문 선택지 (reflection, skin_check)
     allow_text_input = models.BooleanField(default=False)                      # 자유 입력 허용 여부 (reflection)
@@ -148,6 +152,7 @@ class ActivityModuleTemplate(models.Model):
 
     voice_script = models.TextField(null=True, blank=True)
     steps = models.JSONField(null=True, blank=True, default=list)
+    repeat_count = models.IntegerField(default=1)       # steps 세트를 몇 번 반복해야 estimated_minutes를 채우는지
     question = models.CharField(max_length=255, null=True, blank=True)
     question_options = models.JSONField(null=True, blank=True, default=list)
     allow_text_input = models.BooleanField(default=False)

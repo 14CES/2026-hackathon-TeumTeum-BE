@@ -234,6 +234,7 @@ class CourseContentSerializer(serializers.ModelSerializer):
             "channel_name",
             "voice_script",
             "steps",
+            "repeat_count",
             "question",
             "question_options",
             "allow_text_input",

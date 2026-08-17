@@ -107,9 +107,10 @@ def test_create_course_api(monkeypatch):
     assert data["course"]["title"] == "30분 틈 활용법"
     assert data["course"]["total_minutes"] == 30
 
-    assert len(data["course"]["contents"]) == 3
+    # 30분은 분당 모듈 개수 표 기준 4개 (활동 모듈 1개 포함)
+    assert len(data["course"]["contents"]) == 4
 
     assert Course.objects.filter(user=user).count() == 1
     assert CourseContent.objects.filter(
         course__user=user
-    ).count() == 3
+    ).count() == 4
