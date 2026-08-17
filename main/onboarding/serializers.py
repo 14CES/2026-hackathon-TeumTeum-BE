@@ -3,7 +3,7 @@ from rest_framework import serializers
 from accounts.models import User
 from .models import UserProfile
 
-# 실제 UI 기반 질문별 option_id 매핑 테이블
+# 질문별 유효한 option_id 매핑 테이블 (1~12)
 ONBOARDING_DATA = {
     1: [1, 2, 3, 4],     # 읽기, 듣기, 스트레칭, 마음 정리
     2: [5, 6, 7, 8],     # 이동 중, 약속 전, 휴식 중, 업무·수업 중
@@ -45,11 +45,9 @@ class OnboardingAnswerSerializer(serializers.Serializer):
             q_id = ans.get('question_id')
             opt_ids = ans.get('option_ids', [])
 
-            # 존재하지 않는 질문 ID 검증
             if q_id not in ONBOARDING_DATA:
                 raise serializers.ValidationError("존재하지 않는 질문입니다.")
 
-            # 존재하지 않는 선택지 및 불일치 검증
             for opt_id in opt_ids:
                 if opt_id not in ALL_OPTION_IDS:
                     raise serializers.ValidationError("존재하지 않는 선택지입니다.")
@@ -64,7 +62,6 @@ class OnboardingAnswerSerializer(serializers.Serializer):
 
         user, _ = User.objects.get_or_create(guest_uuid=guest_uuid)
 
-        # 답변 데이터 정돈 후 DB 저장 (user_profiles의 status, preferred_type에 매핑)
         answers_dict = {ans['question_id']: ans['option_ids'] for ans in answers}
 
         # 질문 2: 자주 생기는 틈(status) / 질문 1: 관심 콘텐츠, 질문 3: 관심 웰니스(preferred_type)
