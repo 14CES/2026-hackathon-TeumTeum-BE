@@ -50,7 +50,7 @@ class OnboardingQuestionView(APIView):
 
 
 class OnboardingAnswerView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = OnboardingAnswerSerializer(data=request.data)
