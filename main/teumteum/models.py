@@ -73,6 +73,25 @@ class Course(models.Model):
 
 
 
+class YoutubeVideoSource(models.Model):
+    # 유튜브 실시간 검색이 부족할 때 쓰는 더미 풀. "스트레칭/케어" 계열 영상을 미리 채워둔다.
+    video_id = models.CharField(max_length=32, unique=True)
+    url = models.URLField()
+    title = models.CharField(max_length=255)
+    channel_name = models.CharField(max_length=255, null=True, blank=True)
+    thumbnail_url = models.URLField(null=True, blank=True)
+    estimated_minutes = models.IntegerField()
+    tags = models.JSONField(default=list)   # 회복방식과 매칭 (예: "스트레칭")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "youtube_video_sources"
+
+    def __str__(self):
+        return self.title
+
+
 class WellnessArticleSource(models.Model):
     # 팀이 직접 쓴 웰니스 원문 풀. "읽기" 콘텐츠는 뉴스 API 대신 여기서 골라 AI가 재구성한다.
     title = models.CharField(max_length=255)
