@@ -1,40 +1,49 @@
 import uuid
 from rest_framework import serializers
 
-# 1. 요청 파라미터 검증용 Serializer
 class MyPageQuerySerializer(serializers.Serializer):
-    user_uuid = serializers.CharField(required=False)
-    guest_uuid = serializers.CharField(required=False)
+    guest_uuid = serializers.CharField(
+        required=True, 
+        error_messages={"required": "이 필드는 필수 항목입니다."}
+    )
 
-    def validate(self, data):
-        target_uuid = data.get('user_uuid') or data.get('guest_uuid')
-        
-        # 1) 파라미터 누락 검증 (400 Bad Request)
-        if not target_uuid:
-            raise serializers.ValidationError({
-                "guest_uuid": ["이 필드는 필수 항목입니다."]
-            })
-
-        # 2) UUID 형식 검증 (400 Bad Request)
+    def validate_guest_uuid(self, value):
         try:
-            uuid.UUID(target_uuid)
+            uuid.UUID(value)
         except ValueError:
-            raise serializers.ValidationError({
-                "guest_uuid": ["유효한 UUID 형식이 아닙니다."]
-            })
+            raise serializers.ValidationError("유효한 UUID 형식이 아닙니다.")
+        return value
 
-        data['validated_uuid'] = target_uuid
-        return data
+class WeeklyRecoverySerializer(serializers.Serializer):
+    current_week_minutes = serializers.IntegerField()
+    previous_week_minutes = serializers.IntegerField()
+    diff_minutes = serializers.IntegerField()
+    growth_rate = serializers.IntegerField()
+    executed_courses = serializers.IntegerField()
+    completion_rate = serializers.IntegerField()
 
+class AIDiscoverySerializer(serializers.Serializer):
+    summary_text = serializers.CharField()
 
-# 2. DNA 정보 직렬화
-class DnaSerializer(serializers.Serializer):
-    type = serializers.CharField()
+class TeumPatternSerializer(serializers.Serializer):
+    most_frequent_place = serializers.CharField()
+    most_frequent_state = serializers.CharField()
+    best_activity = serializers.CharField()
+    avg_duration_minutes = serializers.IntegerField()
+
+class NextSuggestionPresetSerializer(serializers.Serializer):
+    target_minutes = serializers.IntegerField()
+    place = serializers.CharField()
+    recovery_method = serializers.CharField()
+    course_name = serializers.CharField()
+
+class NextSuggestionSerializer(serializers.Serializer):
+    title = serializers.CharField()
     description = serializers.CharField()
+    preset = NextSuggestionPresetSerializer()
 
-
-# 3. 마이페이지 최종 응답 Serializer
-class MyPageResponseSerializer(serializers.Serializer):
-    nickname = serializers.CharField()
-    total_minutes = serializers.IntegerField()
-    dna = DnaSerializer()
+class MyPageDashboardResponseSerializer(serializers.Serializer):
+    weekly_recovery = WeeklyRecoverySerializer()
+    ai_discovery = AIDiscoverySerializer()
+    teum_pattern = TeumPatternSerializer()
+    next_suggestion = NextSuggestionSerializer()
