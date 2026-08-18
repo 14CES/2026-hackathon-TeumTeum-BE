@@ -6,10 +6,12 @@ from records.models import Record
 
 def get_mypage_dashboard_data(user):
     # 1. 날짜 기준 설정 (이번 주 월요일 자정 / 지난주 월요일 자정)
-    now = timezone.localtime(timezone.now())
+    # USE_TZ=False라 timezone.now()는 이미 로컬 타임존 기준 naive datetime이므로
+    # localtime()/make_aware() 변환이 필요 없다 (오히려 naive datetime에 쓰면 에러남)
+    now = timezone.now()
     today = now.date()
     monday = today - timedelta(days=today.weekday())
-    start_of_current_week = timezone.make_aware(datetime.combine(monday, datetime.min.time()))
+    start_of_current_week = datetime.combine(monday, datetime.min.time())
     start_of_last_week = start_of_current_week - timedelta(days=7)
 
     # 2. 이번 주 / 지난 주 기록

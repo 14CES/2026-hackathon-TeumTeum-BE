@@ -23,6 +23,7 @@ class Record(models.Model):
     completed_minutes = models.IntegerField()
     started_at = models.DateTimeField()
     completed_at = models.DateTimeField(null=True, blank=True)
+    ai_title = models.CharField(max_length=255, null=True, blank=True)  # AI가 코스를 한 줄로 요약한 제목
 
     class Meta:
         db_table = 'records'

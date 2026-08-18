@@ -539,6 +539,42 @@ def generate_next_prep_brief(next_schedule, situation, estimated_minutes):
     }
 
 
+def generate_course_summary_title(content_titles):
+    """
+    방금 끝난 코스에 담겼던 콘텐츠 제목들을 보고,
+    기록 목록에 보여줄 한 줄 요약 제목을 AI가 만든다.
+    실패하면 None을 반환한다 (호출하는 쪽에서 기존 fallback 제목을 그대로 쓰면 됨).
+    """
+
+    if not content_titles:
+        return None
+
+    titles_text = "\n".join(f"- {title}" for title in content_titles)
+
+    prompt = f"""
+너는 웰니스 코치다. 사용자가 방금 아래 콘텐츠들로 구성된 짧은 휴식 코스를 끝냈다.
+
+[코스에 담긴 콘텐츠 제목들]
+{titles_text}
+
+[작업]
+이 콘텐츠들을 종합해서, 사용자가 이 코스에서 뭘 했는지 한눈에 알 수 있는
+짧고 자연스러운 한 줄 제목을 만든다. 15자 안팎이 적당하다.
+마크다운이나 따옴표는 쓰지 않는다. 다른 설명 없이 제목 한 줄만 출력한다.
+"""
+
+    try:
+        response = client.responses.create(
+            model="gpt-5-mini",
+            input=prompt
+        )
+        title = response.output_text.strip()
+        return title or None
+    except Exception as e:
+        print("코스 요약 제목 생성 실패:", e)
+        return None
+
+
 DEFAULT_GENERATED_MINUTES = 2  # AI가 처음부터 새로 쓸 때 기본으로 잡는 분량
 
 
