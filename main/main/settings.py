@@ -140,6 +140,10 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     'http://teumteum.netlify.app',
     'https://teumteum.netlify.app',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://localhost:5173',
+    'https://localhost:5174',
 ]
 
 MEDIA_URL = '/media/'

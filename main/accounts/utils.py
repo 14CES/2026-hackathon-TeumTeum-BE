@@ -4,8 +4,9 @@ from django.utils import timezone
 from django.db.models import Sum
 
 def get_mypage_dashboard_data(user):
-    # 1. 날짜 기준 설정
-    today = datetime.now().date()
+    # 1. 날짜 기준 설정 (이번 주 월요일 자정 / 지난주 월요일 자정)
+    now = timezone.now()
+    today = now.date()
     monday = today - timedelta(days=today.weekday())
     start_of_current_week = datetime.combine(monday, datetime.min.time())
     start_of_last_week = start_of_current_week - timedelta(days=7)

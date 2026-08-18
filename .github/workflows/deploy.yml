@@ -1,0 +1,60 @@
+name: Django CI/CD Pipeline (Gabia)
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  # ghcr.io는 이미지 이름에 대문자를 못 써서 소문자로 변환해서 씀
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Lowercase image name
+        run: echo "IMAGE_NAME=$(echo ${{ env.IMAGE_NAME }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        run: |
+          docker build -t $IMAGE_NAME:latest .
+          docker push $IMAGE_NAME:latest
+
+      - name: SSH Remote Commands and Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.GABIA_HOST }}
+          username: ${{ secrets.GABIA_USERNAME }}
+          key: ${{ secrets.GABIA_SSH_KEY }}
+          envs: IMAGE_NAME
+          script: |
+            # ghcr.io private 패키지를 서버에서 pull하려면 PAT로 로그인 필요
+            echo "${{ secrets.GHCR_PAT }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            sudo docker stop teumteum-app || true
+            sudo docker rm teumteum-app || true
+
+            sudo docker pull $IMAGE_NAME:latest
+
+            # DB/media를 서버(호스트)에 마운트해서, 컨테이너를 지웠다 새로 만들어도 데이터가 안 날아가게 함
+            mkdir -p $HOME/teumteum-deploy/data/media
+
+            sudo docker run -d -p 8000:8000 --name teumteum-app \
+              -v $HOME/teumteum-deploy/data/db.sqlite3:/app/main/db.sqlite3 \
+              -v $HOME/teumteum-deploy/data/media:/app/main/media \
+              --env-file $HOME/teumteum-deploy/.env \
+              --restart unless-stopped \
+              $IMAGE_NAME:latest
+
+            sudo docker image prune -f
