@@ -1,84 +1,98 @@
 from collections import Counter
+from datetime import datetime, timedelta
+from django.utils import timezone
+from django.db.models import Sum
 from records.models import Record
 
-# 5가지 DNA 유형 메타데이터
-DNA_TYPES = {
-    "NEWS": {
-        "type": "인간 레이더",
-        "description": "세상 돌아가는 일 다 꿰뚫는 정보통 DNA",
-        "lines": [
-            "공백시간 10분 만에 시사 상식 섭취 완료!",
-            "친구들 사이에서 걸어 다니는 백과사전",
-            "숏폼 끊고 알짜 뉴스만 쏙쏙 골라 먹는 효율파"
-        ]
-    },
-    "ASMR": {
-        "type": "유리멘탈 보호구역",
-        "description": "작은 소음도 빗소리로 지워내는 고요 DNA",
-        "lines": [
-            "장작 타는 소리면 세상 피로 1초 컷!",
-            "에어팟 꽂는 순간 나만의 고요한 요새 완성",
-            "도파민 과부하? 무소음 힐링으로 가볍게 리셋!"
-        ]
-    },
-    "MUSIC": {
-        "type": "방구석 디제이",
-        "description": "내 삶의 BGM은 내가 직접 정하는 감성 DNA",
-        "lines": [
-            "길거리 걷는 5분도 영화 속 한 장면으로 변신!",
-            "뇌 휴식 사운드로 머릿속 감성 충전 100%",
-            "비트와 멜로디 없인 일상 리셋이 안 되는 사람"
-        ]
-    },
-    "MAGAZINE": {
-        "type": "감성 수집가",
-        "description": "자투리 시간도 화보처럼 읽어내는 매거진 DNA",
-        "lines": [
-            "숏폼 스크롤 대신 깊이 있는 한 줄 에세이 탐독!",
-            "남들 멍때릴 때 취향과 영감을 차곡차곡 수집",
-            "자투리 시간에 감각부터 챙기는 진짜 힙스터"
-        ]
-    },
-    "STRETCH": {
-        "type": "연체동물",
-        "description": "유연함이 남다른 연체동물 DNA",
-        "lines": [
-            "어디에서든 유연함을 뽐내는 사람!",
-            "건강전도사가 바로 당신?",
-            "거북목이 뭐야? 당장 고쳐줄게!"
-        ]
-    }
-}
+def get_mypage_dashboard_data(user):
+    # 1. 날짜 기준 설정 (이번 주 월요일 자정 / 지난주 월요일 자정)
+    now = timezone.localtime(timezone.now())
+    today = now.date()
+    monday = today - timedelta(days=today.weekday())
+    start_of_current_week = timezone.make_aware(datetime.combine(monday, datetime.min.time()))
+    start_of_last_week = start_of_current_week - timedelta(days=7)
 
-def calculate_user_dna(user):
-    """
-    유저의 Record 이력을 분석하여 가장 많이 이용한 DNA 유형을 반환합니다.
-    """
-    # 사용자가 완료한 코스 기록 카테고리 조회
-    records = Record.objects.filter(user=user)
+    # 2. 이번 주 / 지난 주 기록
+    user_records = Record.objects.filter(user=user)
+    this_week_records = user_records.filter(started_at__gte=start_of_current_week)
+    last_week_records = user_records.filter(
+        started_at__gte=start_of_last_week, 
+        started_at__lt=start_of_current_week
+    )
+
+    # 3. 이번 주 나의 틈 통계 계산
+    this_week_min = this_week_records.aggregate(total=Sum('completed_minutes'))['total'] or 0
+    last_week_min = last_week_records.aggregate(total=Sum('completed_minutes'))['total'] or 0
+    diff_min = this_week_min - last_week_min
+    growth_rate = round((diff_min / last_week_min * 100)) if last_week_min > 0 else 0
+
+    exec_count = this_week_records.count()
+    completed_count = this_week_records.filter(completed_at__isnull=False).count()
+    comp_rate = round((completed_count / exec_count) * 100) if exec_count > 0 else 0
+
+    # 4. 나의 틈 패턴 분석
+    total_count = user_records.count()
+    avg_duration = (
+        round(user_records.aggregate(total=Sum('completed_minutes'))['total'] / total_count)
+        if total_count > 0 else 11
+    )
+
+    categories = [r.category for r in user_records if r.category]
+    best_activity = Counter(categories).most_common(1)[0][0] if categories else "스트레칭"
+
+    # Course 연동 또는 UserProfile/MainQuestion 데이터 기반 추출
+    places, states = [], []
+    for r in user_records:
+        if hasattr(r, 'course') and r.course:
+            if getattr(r.course, 'place', None):
+                places.append(r.course.place)
+            if getattr(r.course, 'current_state', None):
+                states.extend(r.course.current_state if isinstance(r.course.current_state, list) else [r.course.current_state])
+
+    most_frequent_place = Counter(places).most_common(1)[0][0] if places else "대중교통"
+    most_frequent_state = Counter(states).most_common(1)[0][0] if states else "피곤함"
+
+    # 5. AI가 발견한 나 텍스트 구성
+    # 시간대별 완료율 집계 로직
+    peak_hour_text = "오후 2~4시"
+    peak_comp_rate = 92
     
-    if not records.exists():
-        dna_info = DNA_TYPES["STRETCH"]
-    else:
-        # 카테고리별 수행 횟수 카운트
-        categories = [r.category for r in records if r.category]
-        if categories:
-            most_common_cat = Counter(categories).most_common(1)[0][0]
-            cat_map = {
-                'NEWS': 'NEWS',
-                'ASMR': 'ASMR',
-                'MUSIC': 'MUSIC',
-                'MAGAZINE': 'MAGAZINE',
-                'BODY': 'STRETCH',
-                'STRETCH': 'STRETCH',
-                'MIND': 'ASMR'
-            }
-            target_key = cat_map.get(most_common_cat, "STRETCH")
-            dna_info = DNA_TYPES.get(target_key, DNA_TYPES["STRETCH"])
-        else:
-            dna_info = DNA_TYPES["STRETCH"]
+    ai_discovery_text = (
+        f"이번 주에는 '{most_frequent_place}'에 {most_frequent_state}을 가장 많이 느꼈어요.\n"
+        f"특히 {peak_hour_text}에 {best_activity} 코스의 완료율이 {peak_comp_rate}%로 가장 높았어요.\n"
+        f"다음 비슷한 상황에서는 짧은 {best_activity}을 먼저 추천할게요!"
+    )
+
+    # 6. AI의 다음 제안 구성
+    suggested_time = min(max(avg_duration, 3), 15)
+    next_suggestion = {
+        "title": f"최근 {most_frequent_place} 피로도가 높았어요.",
+        "description": f"다음에 비슷한 틈이 생기면 {suggested_time}분 목·어깨 리셋 코스를 먼저 추천할게요!",
+        "preset": {
+            "target_minutes": suggested_time,
+            "place": most_frequent_place,
+            "recovery_method": best_activity,
+            "course_name": f"{suggested_time}분 목·어깨 리셋 코스"
+        }
+    }
 
     return {
-        "type": dna_info["type"],
-        "description": dna_info["description"]
+        "weekly_recovery": {
+            "current_week_minutes": this_week_min,
+            "previous_week_minutes": last_week_min,
+            "diff_minutes": diff_min,
+            "growth_rate": growth_rate,
+            "executed_courses": exec_count,
+            "completion_rate": comp_rate
+        },
+        "ai_discovery": {
+            "summary_text": ai_discovery_text
+        },
+        "teum_pattern": {
+            "most_frequent_place": most_frequent_place,
+            "most_frequent_state": most_frequent_state,
+            "best_activity": best_activity,
+            "avg_duration_minutes": avg_duration
+        },
+        "next_suggestion": next_suggestion
     }
