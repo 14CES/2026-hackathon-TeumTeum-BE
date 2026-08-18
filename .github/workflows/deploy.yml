@@ -42,15 +42,15 @@ jobs:
             # ghcr.io private 패키지를 서버에서 pull하려면 PAT로 로그인 필요
             echo "${{ secrets.GHCR_PAT }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            sudo docker stop teumteum-app || true
-            sudo docker rm teumteum-app || true
+            sudo docker stop teumteum-container || true
+            sudo docker rm teumteum-container || true
 
             sudo docker pull $IMAGE_NAME:latest
 
             # DB/media를 서버(호스트)에 마운트해서, 컨테이너를 지웠다 새로 만들어도 데이터가 안 날아가게 함
             mkdir -p $HOME/teumteum-deploy/data/media
 
-            sudo docker run -d -p 8000:8000 --name teumteum-app \
+            sudo docker run -d -p 8000:8000 --name teumteum-container \
               -v $HOME/teumteum-deploy/data/db.sqlite3:/app/main/db.sqlite3 \
               -v $HOME/teumteum-deploy/data/media:/app/main/media \
               --env-file $HOME/teumteum-deploy/.env \
