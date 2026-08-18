@@ -26,12 +26,14 @@ RUN pip install gunicorn
 # 7. 내 컴퓨터의 장고 프로젝트 소스코드를 컨테이너 내부로 전부 복사
 COPY . /app/
 
-# 8. 정적 파일을 한 곳에 모으기
-RUN python main/manage.py collectstatic --noinput
-
-# 9. DJango는 8000번 포트에서 실행되므로 8000으로 포트번호 맞추기
+# 8. DJango는 8000번 포트에서 실행되므로 8000으로 포트번호 맞추기
 EXPOSE 8000
 
-# 10. 컨테이너가 켜졌을 때 장고를 실행할 최종 명령어
+# 9. 컨테이너가 켜졌을 때 장고를 실행할 최종 명령어
+# collectstatic/migrate는 SECRET_KEY 등 실제 환경변수가 필요해서 빌드 시점이 아니라
+# 컨테이너 실행 시점(런타임 env가 주입된 후)에 돌려야 한다.
+# migrate를 먼저 돌려야 마이그레이션에 들어있는 시드 데이터(웰니스 원문, 활동모듈,
+# 유튜브 더미풀, 질문 등)가 배포 DB에도 채워진다. 이미 적용된 마이그레이션은
+# 다시 실행해도 아무 일도 안 하므로 매번 실행해도 안전하다.
 # 현재 프로젝트 명이 project가 맞는지 반드시 확인!!!
-CMD ["gunicorn", "--chdir", "main", "main.wsgi:application", "--bind", "0.0.0.0:8000"]
+CMD ["sh", "-c", "python main/manage.py migrate --noinput && python main/manage.py collectstatic --noinput && gunicorn --chdir main main.wsgi:application --bind 0.0.0.0:8000"]
