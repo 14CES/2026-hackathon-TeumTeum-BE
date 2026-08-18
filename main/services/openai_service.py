@@ -715,3 +715,83 @@ def get_recommended_contents(user):
         "articles": article_contents,
         "youtube": youtube_contents,
     }
+
+def generate_discovery_recommendation_reason(user, article_title, article_category):
+    """
+    [발견 상세 상단] AI 역할: 당신에게 추천한 이유 생성
+    - 사용자 최근 온보딩/홈화면 상태(장소, 상태, 다음 일정 등)와 아티클을 분석해 1~2문장 생성
+    """
+    context = get_user_context(user)
+    
+    situation = context.get("main_situation") or (context.get("onboarding_status")[0] if context.get("onboarding_status") else "이동 중")
+    current_state = ", ".join(context.get("current_state", [])) if context.get("current_state") else "피로감"
+    next_schedule = context.get("next_schedule") or "휴식"
+    interests = ", ".join(context.get("categories", []) + context.get("topics", [])) or "웰니스"
+
+    prompt = f"""
+너는 틈새 웰니스 큐레이터 '틈틈 AI'다.
+사용자의 최근 틈새 시간 입력 데이터와 관심사를 분석하여, 
+왜 이 사용자에게 이 아티클을 추천했는지 다정하고 공감 어린 어조로 추천 이유를 작성해라.
+
+[사용자 상황]
+- 현재 장소/상황: {situation}
+- 현재 상태: {current_state}
+- 다음 일정: {next_schedule}
+- 관심사: {interests}
+
+[추천할 아티클]
+- 카테고리: {article_category}
+- 제목: {article_title}
+
+[작성 규칙]
+1. 사용자의 현재 상태나 장소, 관심사 중 1~2가지를 콕 집어 언급하며 추천 이유를 밝힌다.
+2. 1~2문장으로 간결하게 작성하며, 줄바꿈(\\n)을 적절히 포함한다.
+3. 예시:
+   "최근 틈 기록에서 '{current_state}'과 '{situation}'을 자주 선택하셨어요.
+   지친 시간에 짧고 깊은 회복을 드릴 수 있어 이 글을 추천해요!"
+4. 다른 부가 설명 없이 추천 이유 문장만 출력한다.
+"""
+
+    try:
+        response = client.responses.create(
+            model="gpt-5-mini",
+            input=prompt
+        )
+        return response.output_text.strip()
+    except Exception as e:
+        print("발견 탭 추천 이유 생성 실패:", e)
+        return f"최근 '{current_state}' 상태와 '{situation}' 환경에 맞춰 준비한 맞춤 추천 콘텐츠예요."
+
+
+def generate_discovery_one_line_summary(article_title, article_content):
+    """
+    [발견 상세 하단] AI 역할: 틈틈 한 줄 정리 생성
+    - 아티클 본문을 읽고 사용자가 바로 실천/기억할 수 있는 1문장 핵심 정리
+    """
+    prompt = f"""
+너는 웰니스 에디터다.
+아래 웰니스 아티클 본문을 읽고, 바쁜 사용자가 다음 일상에서 바로 기억하고 실천할 수 있는 
+'틈틈 한 줄 정리'를 1문장(공백 포함 80자 이내)으로 요약해라.
+
+[아티클 제목]
+{article_title}
+
+[아티클 본문]
+{article_content[:1500] if article_content else ""}
+
+[출력 규칙]
+1. 마크다운이나 따옴표 없이, 완성된 1개의 한국어 문장만 출력한다.
+2. 예시: "화면에서 잠시 눈을 떼고 목과 어깨를 움직여주는 것만으로도 오후 피로를 크게 줄일 수 있어요."
+"""
+
+    try:
+        response = client.responses.create(
+            model="gpt-5-mini",
+            input=prompt
+        )
+        return response.output_text.strip()
+    except Exception as e:
+        print("발견 탭 한 줄 정리 생성 실패:", e)
+        if article_content:
+            return article_content[:70].rstrip() + "…"
+        return "잠시 화면을 멈추고 몸의 긴장을 푸는 것만으로도 다음 일정을 가볍게 시작할 수 있어요."
