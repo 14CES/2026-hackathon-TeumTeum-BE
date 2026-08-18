@@ -1,6 +1,7 @@
 from django.urls import path
-from .views import MyPageDashboardView
+from .views import CheckMeView, MyPageView
 
 urlpatterns = [
-    path('dashboard', MyPageDashboardView.as_view(), name='mypage-dashboard'),
+    path('me', CheckMeView.as_view(), name='check-me'),
+    path('mypage/dashboard', MyPageView.as_view(), name='mypage-dashboard'),
 ]
