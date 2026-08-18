@@ -29,7 +29,7 @@ from .models import (
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 
-from services.openai_service import get_user_context, get_recommended_contents, generate_personalized_brief, generate_original_brief, generate_next_prep_brief
+from services.openai_service import get_user_context, get_recommended_contents, generate_personalized_brief, generate_original_brief, generate_next_prep_brief, generate_course_summary_title
 from services.course import (
     select_best_contents_in_range,
     get_module_count_range,
@@ -45,7 +45,8 @@ from records.models import Record, RecordContent
 
 def get_week_start(dt):
     # 월요일을 그 주의 시작으로 본다
-    date = timezone.localtime(dt).date()
+    # USE_TZ=False라 dt는 이미 로컬 타임존 기준 naive datetime이므로 localtime() 변환이 필요 없다
+    date = dt.date()
     return date - timedelta(days=date.weekday())
 
 
@@ -110,8 +111,14 @@ def save_course_record(user, execution):
     # 실제로 사용한 시간(초)을 분 단위로 환산해 기록에 남긴다
     completed_minutes = round(execution.used_seconds / 60)
 
+    course_contents = execution.course.contents.all().order_by("content_order")
+
     content_types_used = ",".join(
-        execution.course.contents.values_list("content_type", flat=True)
+        content.content_type for content in course_contents
+    )
+
+    ai_title = generate_course_summary_title(
+        [content.title for content in course_contents if content.title]
     )
 
     record = Record.objects.create(
@@ -122,9 +129,10 @@ def save_course_record(user, execution):
         completed_minutes=completed_minutes,
         started_at=execution.started_at,
         completed_at=execution.ended_at,
+        ai_title=ai_title,
     )
 
-    for content in execution.course.contents.all().order_by("content_order"):
+    for content in course_contents:
         RecordContent.objects.create(
             record=record,
             sequence=content.content_order,

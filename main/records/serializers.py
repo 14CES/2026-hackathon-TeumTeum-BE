@@ -19,6 +19,9 @@ class RecordItemSerializer(serializers.ModelSerializer):
         return target_date.strftime('%Y-%m-%d') if target_date else None
 
     def get_title(self, obj):
+        if obj.ai_title:
+            return obj.ai_title
+
         first_content = next(iter(obj.contents.all()), None)
         if first_content:
             return first_content.title
