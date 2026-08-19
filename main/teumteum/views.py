@@ -1073,7 +1073,9 @@ class CourseViewSet(viewsets.ViewSet):
         print("유튜브 후보 수:", len(youtube_contents))
         print("선호 콘텐츠 타입:", context["content_types"])
         print("목표 시간:", context["target_minutes"])
-        print("selected_contents:", selected_contents)
+        # 콘텐츠 제목에 이모지 등이 섞여 있으면 Windows 콘솔에서 print 자체가
+        # UnicodeEncodeError로 죽어서 요청이 500이 나는 문제가 있었음 -> 제목은 개수만 로그로 남긴다
+        print("선택된 콘텐츠 개수:", len(selected_contents) if selected_contents else 0)
 
         if selected_contents is None:
             return Response(

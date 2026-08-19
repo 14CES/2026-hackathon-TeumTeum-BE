@@ -10,11 +10,21 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 import os
+import sys
 import environ
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Windows 콘솔 기본 인코딩은 이모지 등을 못 찍어서 유튜브 영상 제목 같은
+# 외부 콘텐츠를 print()로 로그 찍다가 UnicodeEncodeError로 요청이 통째로 500 나는 문제
+# -> 표준출력을 UTF-8로 강제해서 어떤 문자가 찍혀도 죽지 않게 함.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except AttributeError:
+    pass
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
