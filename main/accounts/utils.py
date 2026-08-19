@@ -3,6 +3,26 @@ from datetime import datetime, timedelta
 from django.utils import timezone
 from django.db.models import Sum
 
+
+def _format_hour_range(start_hour):
+    # 2시간 단위 구간(예: 14시 시작 -> "오후 2~4시")을 한국어로 바꾼다
+    end_hour = (start_hour + 2) % 24
+
+    def to_12h(hour):
+        period = "오전" if hour < 12 else "오후"
+        display = hour % 12
+        if display == 0:
+            display = 12
+        return period, display
+
+    start_period, start_display = to_12h(start_hour)
+    end_period, end_display = to_12h(end_hour)
+
+    if start_period == end_period:
+        return f"{start_period} {start_display}~{end_display}시"
+    return f"{start_period} {start_display}시~{end_period} {end_display}시"
+
+
 def get_mypage_dashboard_data(user):
     # 1. 날짜 기준 설정 (이번 주 월요일 자정 / 지난주 월요일 자정)
     now = timezone.now()
@@ -77,8 +97,33 @@ def get_mypage_dashboard_data(user):
     most_frequent_state = Counter(states).most_common(1)[0][0] if states else "피곤함"
 
     # 5. 코멘트 및 다음 제안 프리셋
+    # best_activity 코스가 실제로 가장 잘 끝난 시간대(2시간 단위)와 그때의 완료율을 계산한다
+    # 데이터가 없는 신규 유저는 예시 문구가 자연스럽게 보이도록 기본값을 둔다
     peak_hour_text = "오후 2~4시"
     peak_comp_rate = 92
+
+    if user_records:
+        try:
+            best_activity_records = [r for r in user_records if str(r.category) == best_activity]
+
+            bucket_stats = {}
+            for r in best_activity_records:
+                bucket_start = (r.started_at.hour // 2) * 2
+                stats = bucket_stats.setdefault(bucket_start, {"total": 0, "completed": 0})
+                stats["total"] += 1
+                if r.completed_at is not None:
+                    stats["completed"] += 1
+
+            if bucket_stats:
+                best_bucket, best_stats = max(
+                    bucket_stats.items(),
+                    key=lambda item: (item[1]["completed"] / item[1]["total"], item[1]["total"])
+                )
+                peak_comp_rate = round((best_stats["completed"] / best_stats["total"]) * 100)
+                peak_hour_text = _format_hour_range(best_bucket)
+        except Exception:
+            pass
+
     ai_discovery_text = (
         f"이번 주에는 '{most_frequent_place}'에 {most_frequent_state}을 가장 많이 느꼈어요.\n"
         f"특히 {peak_hour_text}에 {best_activity} 코스의 완료율이 {peak_comp_rate}%로 가장 높았어요.\n"
