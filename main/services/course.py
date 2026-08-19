@@ -8,6 +8,13 @@ YOUTUBE_CONTENT_TYPES = {
     "마음 정리",
 }
 
+# 회복 방식 -> 그 회복 방식에서 나올 수 있는 활동 모듈 content_type
+RECOVERY_METHOD_TO_ACTIVITY_TYPE = {
+    "듣기": "audio_guide",
+    "스트레칭": "stretch_guide",
+    "마음 정리": "reflection",
+}
+
 
 def select_best_contents(
     article_contents,
@@ -122,13 +129,18 @@ def select_best_contents(
             if remaining_minutes < combination_article_count:
                 continue
 
-            total_minutes = sum(
-                content.get("original_estimated_minutes", 0)
+            # 초 단위로 정밀하게 비교한다 (유튜브는 실제 영상 길이 초 단위,
+            # 기사는 초 단위 정보가 없어 분 단위 추정치를 그대로 초로 환산해서 쓴다)
+            total_seconds = sum(
+                content.get(
+                    "duration_seconds",
+                    content.get("original_estimated_minutes", 0) * 60
+                )
                 for content in contents
             )
 
             difference = abs(
-                total_minutes - target_minutes
+                total_seconds - target_minutes * 60
             )
 
             # 선택된 기사들의 전체 원문 길이 (AI가 새로 쓸 자리는 원문이 없으므로 0으로 취급)
@@ -214,11 +226,14 @@ def select_best_contents_in_range(
         if contents is None:
             continue
 
-        total_minutes = sum(
-            content.get("original_estimated_minutes", 0)
+        total_seconds = sum(
+            content.get(
+                "duration_seconds",
+                content.get("original_estimated_minutes", 0) * 60
+            )
             for content in contents
         )
-        diff = abs(total_minutes - target_minutes)
+        diff = abs(total_seconds - target_minutes * 60)
 
         if (
             best_diff is None
@@ -289,20 +304,33 @@ def allocate_content_minutes(contents, target_minutes):
         return contents
 
 
-def select_activity_module(current_state, situation, remaining_minutes, exclude_ids=None):
+def select_activity_module(current_state, situation, remaining_minutes, content_types, exclude_ids=None):
     """
     현재 상태·장소·남은 시간에 맞는 활동 모듈 템플릿(호흡/스트레칭/마음정리/피부체크)을
     하나 선택한다. current_state와 겹치는 태그가 많은 템플릿을 우선하고,
     동점이면 무작위로 고른다. 맞는 템플릿이 없으면 None을 반환한다.
+
+    content_types(사용자가 실제로 고른 회복 방식)에 해당하는 타입의 템플릿만 후보로 삼는다.
+    예를 들어 "듣기"만 골랐으면 audio_guide만 후보가 되고, 스트레칭 템플릿은 안 나온다.
     """
 
     from teumteum.models import ActivityModuleTemplate
 
     exclude_ids = exclude_ids or []
 
+    allowed_activity_types = {
+        RECOVERY_METHOD_TO_ACTIVITY_TYPE[content_type]
+        for content_type in content_types
+        if content_type in RECOVERY_METHOD_TO_ACTIVITY_TYPE
+    }
+
+    if not allowed_activity_types:
+        return None
+
     candidates = ActivityModuleTemplate.objects.filter(
         is_active=True,
         estimated_minutes__lte=remaining_minutes,
+        content_type__in=allowed_activity_types,
     ).exclude(id__in=exclude_ids)
 
     scored = []

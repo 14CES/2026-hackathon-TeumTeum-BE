@@ -1,9 +1,11 @@
+import math
 import re
 import requests
 from django.conf import settings
 
 
 def parse_duration(duration):
+    # 초 단위 정확한 길이를 반환한다 (분 단위 올림은 호출하는 쪽에서 표시용으로 따로 계산한다)
 
     hours = 0
     minutes = 0
@@ -28,7 +30,7 @@ def parse_duration(duration):
         + seconds
     )
 
-    return max(1, (total_seconds + 59) // 60)
+    return max(1, total_seconds)
 
 
 def search_youtube(query, max_results=5):
@@ -101,10 +103,14 @@ def search_youtube(query, max_results=5):
 
         video_id = item["id"]["videoId"]
 
-        original_estimated_minutes = duration_map.get(
+        # 실제 초 단위 길이 (6분 14초처럼 정확한 값) -> 코스 조합 매칭에서 정밀도를 위해 그대로 들고 다닌다
+        duration_seconds = duration_map.get(
             video_id,
-            1
+            60
         )
+
+        # 화면 표시/시간 배분용 분 단위 (올림 처리)
+        original_estimated_minutes = math.ceil(duration_seconds / 60)
 
         videos.append({
             "video_id": video_id,
@@ -112,6 +118,7 @@ def search_youtube(query, max_results=5):
             "channel": item["snippet"]["channelTitle"],
             "thumbnail": item["snippet"]["thumbnails"]["medium"]["url"],
             "url": f"https://www.youtube.com/watch?v={video_id}",
+            "duration_seconds": duration_seconds,
             "original_estimated_minutes": original_estimated_minutes,
             "estimated_minutes": original_estimated_minutes,
         })
