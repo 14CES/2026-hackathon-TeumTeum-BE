@@ -4,6 +4,12 @@ on:
   push:
     branches: [ "main" ]
 
+# upstream 레포에서 GHCR 패키지를 처음 만들 때는
+# GITHUB_TOKEN에 packages:write 권한을 선언해야 push가 된다
+permissions:
+  contents: read
+  packages: write
+
 env:
   # ghcr.io는 이미지 이름에 대문자를 못 써서 소문자로 변환해서 씀
   IMAGE_NAME: ghcr.io/${{ github.repository }}
