@@ -106,6 +106,7 @@ def pick_activity_module_slot(context, situation):
         situation=situation,
         remaining_minutes=remaining_minutes,
         content_types=context["content_types"],
+        next_schedule=context["next_schedule"],
     )
 
 

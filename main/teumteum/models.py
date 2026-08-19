@@ -178,6 +178,7 @@ class ActivityModuleTemplate(models.Model):
     estimated_minutes = models.IntegerField()
     tags = models.JSONField(default=list)               # 현재 상태 옵션 텍스트와 매칭 (예: "피곤해요")
     allowed_contexts = models.JSONField(default=list)    # 장소 옵션 텍스트와 매칭 (예: "이동 중"), 비어있으면 장소 무관
+    target_schedules = models.JSONField(default=list)    # 다음 일정 옵션 텍스트와 매칭 (예: "친구·약속"), 비어있으면 다음 일정 무관
     is_active = models.BooleanField(default=True)
 
     class Meta:

@@ -304,7 +304,7 @@ def allocate_content_minutes(contents, target_minutes):
         return contents
 
 
-def select_activity_module(current_state, situation, remaining_minutes, content_types, exclude_ids=None):
+def select_activity_module(current_state, situation, remaining_minutes, content_types, next_schedule=None, exclude_ids=None):
     """
     현재 상태·장소·남은 시간에 맞는 활동 모듈 템플릿(호흡/스트레칭/마음정리/피부체크)을
     하나 선택한다. current_state와 겹치는 태그가 많은 템플릿을 우선하고,
@@ -312,6 +312,11 @@ def select_activity_module(current_state, situation, remaining_minutes, content_
 
     content_types(사용자가 실제로 고른 회복 방식)에 해당하는 타입의 템플릿만 후보로 삼는다.
     예를 들어 "듣기"만 골랐으면 audio_guide만 후보가 되고, 스트레칭 템플릿은 안 나온다.
+
+    template.target_schedules가 있는 템플릿(예: "친구를 만나기 전 마음정리")은
+    next_schedule이 정확히 그 값과 일치할 때만 후보에 들어간다. "없음"/"기타"거나
+    다른 일정이면 이런 템플릿은 자동으로 후보에서 빠지고, target_schedules가
+    비어있는 범용 템플릿들 중에서 골라진다.
     """
 
     from teumteum.models import ActivityModuleTemplate
@@ -341,7 +346,16 @@ def select_activity_module(current_state, situation, remaining_minutes, content_
         if template.allowed_contexts and situation not in template.allowed_contexts:
             continue
 
+        # 특정 다음 일정 전용 템플릿인데 지금 다음 일정이 그거랑 다르면 제외
+        if template.target_schedules and next_schedule not in template.target_schedules:
+            continue
+
         tag_matches = len(set(template.tags) & set(current_state))
+
+        # 다음 일정까지 정확히 맞는 전용 템플릿이면 가장 우선되게 가산점을 준다
+        if template.target_schedules:
+            tag_matches += 10
+
         scored.append((tag_matches, template))
 
     if not scored:
