@@ -36,4 +36,7 @@ EXPOSE 8000
 # 유튜브 더미풀, 질문 등)가 배포 DB에도 채워진다. 이미 적용된 마이그레이션은
 # 다시 실행해도 아무 일도 안 하므로 매번 실행해도 안전하다.
 # 현재 프로젝트 명이 project가 맞는지 반드시 확인!!!
-CMD ["sh", "-c", "python main/manage.py migrate --noinput && python main/manage.py collectstatic --noinput && gunicorn --chdir main main.wsgi:application --bind 0.0.0.0:8000"]
+# 코스 생성 API가 OpenAI/YouTube를 여러 번 호출해서 30초를 넘길 수 있는데,
+# gunicorn 워커 기본 타임아웃이 30초라 그보다 오래 걸리면 워커가 강제 종료되고
+# nginx에는 502로 보임 -> 타임아웃을 넉넉하게 늘려준다.
+CMD ["sh", "-c", "python main/manage.py migrate --noinput && python main/manage.py collectstatic --noinput && gunicorn --chdir main main.wsgi:application --bind 0.0.0.0:8000 --timeout 120"]
