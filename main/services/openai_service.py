@@ -698,7 +698,7 @@ def get_recommended_contents(user):
     if all_queries:
         with ThreadPoolExecutor(max_workers=min(len(all_queries), 8)) as executor:
             all_results = list(
-                executor.map(lambda q: search_youtube(q, max_results=5), all_queries)
+                executor.map(lambda q: search_youtube(q, max_results=8), all_queries)
             )
     else:
         all_results = []
@@ -722,75 +722,76 @@ def get_recommended_contents(user):
     print("===== 중복 제거 후 새 유튜브 후보 =====")
     print("새 유튜브 후보 수:", len(youtube_contents))
 
-    # ---- 유튜브가 부족하면 더미 풀에서 채우고, 그래도 부족하면 이전 추천을 재사용 ----
+    # ---- 라이브 검색 결과 개수와 상관없이 더미 풀에서 몇 개 더 상시로 섞는다 ----
+    # (target_minutes에 맞는 조합을 고를 후보 자체를 넓혀서, 시간이 잘 안 맞는 문제를 줄인다.
+    #  더미 풀 조회는 로컬 DB라 API 호출과 달리 시간이 거의 안 걸린다)
 
     MIN_YOUTUBE_COUNT = 3
+    EXTRA_DUMMY_COUNT = 4
 
+    needed = max(EXTRA_DUMMY_COUNT, MIN_YOUTUBE_COUNT - len(youtube_contents))
+
+    dummy_candidates = list(
+        YoutubeVideoSource.objects.filter(is_active=True)
+        .exclude(url__in=used_youtube_urls)
+        .exclude(url__in=seen_youtube_urls)
+    )
+
+    random.shuffle(dummy_candidates)
+
+    added = 0
+
+    for video in dummy_candidates:
+
+        if added >= needed:
+            break
+
+        youtube_contents.append({
+            "title": video.title,
+            "url": video.url,
+            "thumbnail": video.thumbnail_url,
+            "channel": video.channel_name,
+            "original_estimated_minutes": video.estimated_minutes,
+            "estimated_minutes": video.estimated_minutes,
+        })
+
+        seen_youtube_urls.add(video.url)
+        added += 1
+
+    print(f"더미 풀에서 후보 추가(상시 혼합): {added}")
+
+    # 그래도 최소 개수(3개)를 못 채우면, 최후의 수단으로 이전에 추천했던 영상을 재사용한다
     if len(youtube_contents) < MIN_YOUTUBE_COUNT:
 
-        needed = MIN_YOUTUBE_COUNT - len(youtube_contents)
+        remaining_needed = MIN_YOUTUBE_COUNT - len(youtube_contents)
 
-        dummy_candidates = list(
-            YoutubeVideoSource.objects.filter(is_active=True)
-            .exclude(url__in=used_youtube_urls)
-            .exclude(url__in=seen_youtube_urls)
-        )
+        reusable_youtube = [
+            content for content in old_youtube_qs
+            if content.video_url not in seen_youtube_urls
+        ]
 
-        random.shuffle(dummy_candidates)
+        random.shuffle(reusable_youtube)
 
-        added = 0
+        reused = 0
 
-        for video in dummy_candidates:
+        for old_content in reusable_youtube:
 
-            if added >= needed:
+            if reused >= remaining_needed:
                 break
 
             youtube_contents.append({
-                "title": video.title,
-                "url": video.url,
-                "thumbnail": video.thumbnail_url,
-                "channel": video.channel_name,
-                "original_estimated_minutes": video.estimated_minutes,
-                "estimated_minutes": video.estimated_minutes,
+                "title": old_content.title,
+                "url": old_content.video_url,
+                "thumbnail": old_content.thumbnail_url,
+                "channel": old_content.channel_name,
+                "original_estimated_minutes": old_content.estimated_minutes,
+                "estimated_minutes": old_content.estimated_minutes,
             })
 
-            seen_youtube_urls.add(video.url)
-            added += 1
+            seen_youtube_urls.add(old_content.video_url)
+            reused += 1
 
-        print(f"유튜브 부족 → 더미 풀에서 추가: {added}")
-
-        # 더미 풀로도 다 못 채우면, 최후의 수단으로 이전에 추천했던 영상을 재사용한다
-        if added < needed:
-
-            remaining_needed = needed - added
-
-            reusable_youtube = [
-                content for content in old_youtube_qs
-                if content.video_url not in seen_youtube_urls
-            ]
-
-            random.shuffle(reusable_youtube)
-
-            reused = 0
-
-            for old_content in reusable_youtube:
-
-                if reused >= remaining_needed:
-                    break
-
-                youtube_contents.append({
-                    "title": old_content.title,
-                    "url": old_content.video_url,
-                    "thumbnail": old_content.thumbnail_url,
-                    "channel": old_content.channel_name,
-                    "original_estimated_minutes": old_content.estimated_minutes,
-                    "estimated_minutes": old_content.estimated_minutes,
-                })
-
-                seen_youtube_urls.add(old_content.video_url)
-                reused += 1
-
-            print(f"더미 풀로도 부족 → 이전 추천 유튜브에서 추가: {reused}")
+        print(f"더미 풀로도 부족 → 이전 추천 유튜브에서 추가: {reused}")
 
     # 분당 모듈 개수 표의 최대치(4개)까지 고를 수 있도록 후보를 충분히 확보한다
     article_contents = select_wellness_articles(user, interests, max_count=4)

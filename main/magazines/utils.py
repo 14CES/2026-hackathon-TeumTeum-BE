@@ -56,12 +56,12 @@ def _to_brief_payload(article, reason=None):
     return payload
 
 
-def _pick_discovery_articles(user_topics, user_state, user_place, count=4):
+def _pick_discovery_articles(user, user_topics, user_state, user_place, count=4):
     pool = list(WellnessArticle.objects.all())
     if not pool:
         return []
 
-    matched = []
+    matched_articles = []
     for article in pool:
         score = 0
         # 1. 온보딩 관심 웰니스/콘텐츠 매칭
@@ -81,14 +81,20 @@ def _pick_discovery_articles(user_topics, user_state, user_place, count=4):
             score += 1
 
         if score > 0:
-            matched.append((score, article))
+            matched_articles.append(article)
 
-    # 점수 높은 순 정렬 후 미매칭 아티클과 결합
-    matched.sort(key=lambda x: x[0], reverse=True)
-    matched_articles = [item[1] for item in matched]
     unmatched_articles = [a for a in pool if a not in matched_articles]
 
-    random.shuffle(unmatched_articles)
+    # 오늘 날짜 + 이 유저를 시드로 써서, 하루 동안은 같은 추천이 유지되고
+    # (새로고침해도 안 바뀜) 유저마다는 서로 다르게, 날짜가 바뀌면 다시 랜덤으로 섞인다.
+    seed_key = f"{timezone.now().date().isoformat()}-{user.guest_uuid}"
+    daily_random = random.Random(seed_key)
+
+    # 사용자 맞춤(matched) 안에서 랜덤으로 섞는다 -> 매칭된 게 우선이되, 매번 같은 것만 뜨지 않게
+    daily_random.shuffle(matched_articles)
+    daily_random.shuffle(unmatched_articles)
+
+    # 맞춤 콘텐츠가 count보다 적어도, 미매칭 아티클로 채워서 개수는 항상 맞춘다
     return (matched_articles + unmatched_articles)[:count]
 
 
@@ -138,7 +144,7 @@ def get_discovery_data(user):
             if getattr(recent_record.course, 'place', None):
                 recent_place = recent_record.course.place
 
-    picked = _pick_discovery_articles(topics, recent_state, recent_place, count=5)
+    picked = _pick_discovery_articles(user, topics, recent_state, recent_place, count=5)
 
     # 1. 기록이 없는 신규 유저 또는 초기 응답
     if not records.exists():
