@@ -61,6 +61,10 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# collectstatic 결과물 (Dockerfile CMD에서 배포 시점에 자동 생성됨, 커밋 불필요)
+static/
+**/static/
+
 # Flask stuff:
 instance/
 .webassets-cache
