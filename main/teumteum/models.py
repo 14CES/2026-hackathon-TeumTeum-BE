@@ -60,7 +60,8 @@ class Course(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="courses")
     title = models.CharField(max_length=255)
     description = models.CharField(max_length=255)
-    total_minutes = models.IntegerField()
+    total_minutes = models.IntegerField()               # 실제 콘텐츠 합계를 반올림한 분 단위 (표시용)
+    total_seconds = models.IntegerField(default=0)       # 실제 콘텐츠 합계, 초 단위 (정밀한 시간 표시/타이머 기준용)
     place = models.CharField(max_length=50, null=True, blank=True)         # 생성 당시 장소 (마이페이지 패턴 분석용)
     current_state = models.JSONField(default=list, blank=True)             # 생성 당시 현재 상태 (마이페이지 패턴 분석용)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -145,7 +146,8 @@ class CourseContent(models.Model):
 class CourseExecution(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="course_executions")
     course = models.ForeignKey(Course, on_delete=models.CASCADE,related_name="executions")
-    target_minutes = models.IntegerField()             # 최초 설정값 (분 단위)
+    target_minutes = models.IntegerField()             # 코스 총 시간, 분 단위 반올림 (표시용)
+    target_seconds = models.IntegerField(default=0)    # 코스 총 시간, 초 단위 (타이머 기준값)
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)
     used_seconds = models.IntegerField(default=0)      # 실행 중 누적 사용 시간 (초 단위)
@@ -154,10 +156,6 @@ class CourseExecution(models.Model):
 
     class Meta:
         db_table = "course_executions"
-
-    @property
-    def target_seconds(self):
-        return self.target_minutes * 60
 
     def __str__(self):
         return f"{self.user} - {self.course}"

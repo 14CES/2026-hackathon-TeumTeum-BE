@@ -44,6 +44,10 @@ def search_youtube(query, max_results=5):
         "q": query,
         "type": "video",
         "maxResults": max_results,
+        # 필터가 아니라 순위 가산점이라, 한글+영어 섞인 국내 채널도 그대로 잡힌다.
+        # 이게 없으면 일본어 등 관련 없는 나라 영상이 섞여 나오는 경우가 있었다.
+        "regionCode": "KR",
+        "relevanceLanguage": "ko",
     }
 
     try:
