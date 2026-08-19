@@ -6,7 +6,7 @@ class User(models.Model):
     guest_uuid = models.CharField(max_length=255, unique=True)
     nickname = models.CharField(max_length=255, null=True, blank=True)
     total_minutes = models.IntegerField(default=0)
-    target_minutes = models.IntegerField(default=3)
+    target_minutes = models.IntegerField(default=5)  # 최소 허용값(5분)과 맞춰서, 처음 화면에 5분으로 뜨게 함
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
