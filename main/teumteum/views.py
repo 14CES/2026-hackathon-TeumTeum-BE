@@ -154,6 +154,29 @@ def generate_article_briefs_parallel(selected_contents, situation, interests, cu
     return briefs
 
 
+def compute_real_total_seconds(activity_module, next_prep_text, selected_contents):
+    """
+    실제로 코스에 들어갈 콘텐츠들의 시간 합계를 초 단위로 정확히 계산한다.
+    target_minutes(사용자가 설정한 목표)와 다르게, 여기서 나온 값이 코스의 진짜 총 시간이다.
+    유튜브는 실제 영상 길이(duration_seconds)를, 그 외(기사 등)는 분 단위 추정치를 초로 환산해서 더한다.
+    """
+
+    total_seconds = 0
+
+    if activity_module:
+        total_seconds += activity_module.estimated_minutes * 60
+    elif next_prep_text:
+        total_seconds += NEXT_PREP_MINUTES * 60
+
+    for content in selected_contents:
+        total_seconds += content.get(
+            "duration_seconds",
+            content.get("estimated_minutes", 0) * 60
+        )
+
+    return total_seconds
+
+
 def save_course_record(user, execution):
     # 실제로 사용한 시간(초)을 분 단위로 환산해 기록에 남긴다
     completed_minutes = round(execution.used_seconds / 60)
@@ -239,6 +262,7 @@ def start_course_execution(user, course):
         user=user,
         course=course,
         target_minutes=course.total_minutes,
+        target_seconds=course.total_seconds,
         started_at=started_at,
         status="in_progress",
     )
@@ -533,11 +557,16 @@ class CourseViewSet(viewsets.ViewSet):
             )
 
         # 7. Course 생성
+        real_total_seconds = compute_real_total_seconds(
+            activity_module, next_prep_text, selected_contents
+        )
+
         course = Course.objects.create(
             user=user,
             title=f"{user.target_minutes}분 틈 활용법",
             description="추천이 마음에 들지 않는다면 바꿔보세요.",
-            total_minutes=user.target_minutes,
+            total_minutes=round(real_total_seconds / 60),
+            total_seconds=real_total_seconds,
             place=context["main_situation"],
             current_state=context["current_state"],
         )
@@ -823,12 +852,12 @@ class CourseViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # 3. 실행 기록 조회
+        # 3. 실행 기록 조회 (일시정지 상태에서도 중단할 수 있어야 함)
         try:
             execution = CourseExecution.objects.get(
                 id=execution_id,
                 user=user,
-                status="in_progress"
+                status__in=["in_progress", "paused"]
             )
         except CourseExecution.DoesNotExist:
             return Response(
@@ -839,12 +868,14 @@ class CourseViewSet(viewsets.ViewSet):
         # 4. 종료 시간과 마지막 사용 시간 계산 (초 단위)
         ended_at = timezone.now()
 
-        elapsed_seconds = round(
-            (ended_at - execution.started_at).total_seconds()
-        )
-
-        # 기존 사용 시간에 마지막 사용 시간 누적
-        execution.used_seconds += elapsed_seconds
+        # 일시정지 상태라면 pause() 시점에 이미 used_seconds에 다 반영해뒀고
+        # started_at은 그 이후로 갱신되지 않으므로, 다시 더하면 시간이 이중으로 계산된다.
+        # in_progress일 때만 마지막 구간(마지막 시작~지금)을 추가로 더한다.
+        if execution.status == "in_progress":
+            elapsed_seconds = round(
+                (ended_at - execution.started_at).total_seconds()
+            )
+            execution.used_seconds += elapsed_seconds
 
         # 최대 설정 시간 초과 방지
         if execution.used_seconds > execution.target_seconds:
@@ -1095,11 +1126,16 @@ class CourseViewSet(viewsets.ViewSet):
             )
 
         # 6. 새로운 Course 생성
+        real_total_seconds = compute_real_total_seconds(
+            activity_module, next_prep_text, selected_contents
+        )
+
         course = Course.objects.create(
             user=user,
             title=f"{user.target_minutes}분 틈 활용법",
             description="새로운 추천 코스입니다.",
-            total_minutes=user.target_minutes,
+            total_minutes=round(real_total_seconds / 60),
+            total_seconds=real_total_seconds,
             place=context["main_situation"],
             current_state=context["current_state"],
         )

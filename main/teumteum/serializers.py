@@ -253,6 +253,7 @@ class CourseSerializer(serializers.ModelSerializer):
             "title",
             "description",
             "total_minutes",
+            "total_seconds",
             "contents",
         ]
 
