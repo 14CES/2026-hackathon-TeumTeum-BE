@@ -1,6 +1,7 @@
 import math
 import random
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 from openai import OpenAI
 from django.conf import settings
@@ -316,14 +317,18 @@ def generate_user_search_queries(user):
     onboarding_status = context["onboarding_status"]
     recent_satisfaction = context["recent_satisfaction"]
 
+    target_content_types = [
+        content_type for content_type in context["content_types"]
+        if content_type in YOUTUBE_SEARCH_CONTENT_TYPES
+    ]
+
     queries = {}
 
-    for content_type in context["content_types"]:
+    if not target_content_types:
+        return queries
 
-        if content_type not in YOUTUBE_SEARCH_CONTENT_TYPES:
-            continue
-
-        search_queries = generate_search_queries(
+    def _generate_for(content_type):
+        return content_type, generate_search_queries(
             situation=situation,
             next_schedule=next_schedule,
             current_state=current_state,
@@ -334,7 +339,10 @@ def generate_user_search_queries(user):
             target_minutes=context["target_minutes"]
         )
 
-        queries[content_type] = search_queries
+    # 회복 방식마다 검색어 생성을 순서대로 기다리지 않고 동시에 요청해서 시간을 줄인다
+    with ThreadPoolExecutor(max_workers=len(target_content_types)) as executor:
+        for content_type, search_queries in executor.map(_generate_for, target_content_types):
+            queries[content_type] = search_queries
 
     return queries
 
@@ -680,26 +688,36 @@ def get_recommended_contents(user):
 
     seen_youtube_urls = set()
 
-    for content_type, search_queries in queries.items():
+    # 검색어별로 순서대로 기다리지 않고 동시에 유튜브를 검색해서 시간을 줄인다
+    all_queries = [
+        query
+        for search_queries in queries.values()
+        for query in search_queries
+    ]
 
-        for query in search_queries:
+    if all_queries:
+        with ThreadPoolExecutor(max_workers=min(len(all_queries), 8)) as executor:
+            all_results = list(
+                executor.map(lambda q: search_youtube(q, max_results=5), all_queries)
+            )
+    else:
+        all_results = []
 
-            results = search_youtube(query, max_results=5)
+    for results in all_results:
+        for content in results:
+            url = content.get("url")
 
-            for content in results:
-                url = content.get("url")
+            if not url:
+                continue
 
-                if not url:
-                    continue
+            if url in used_youtube_urls:
+                continue
 
-                if url in used_youtube_urls:
-                    continue
+            if url in seen_youtube_urls:
+                continue
 
-                if url in seen_youtube_urls:
-                    continue
-
-                seen_youtube_urls.add(url)
-                youtube_contents.append(content)
+            seen_youtube_urls.add(url)
+            youtube_contents.append(content)
 
     print("===== 중복 제거 후 새 유튜브 후보 =====")
     print("새 유튜브 후보 수:", len(youtube_contents))

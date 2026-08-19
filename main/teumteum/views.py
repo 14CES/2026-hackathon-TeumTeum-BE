@@ -1,4 +1,5 @@
 from datetime import timedelta
+from concurrent.futures import ThreadPoolExecutor
 
 from django.shortcuts import render
 from django.utils import timezone
@@ -105,6 +106,51 @@ def pick_activity_module_slot(context, situation):
         situation=situation,
         remaining_minutes=remaining_minutes,
     )
+
+
+def generate_article_briefs_parallel(selected_contents, situation, interests, current_state):
+    """
+    selected_contents 중 "source"가 있는 항목(읽기 콘텐츠)들의 AI 브리프 생성을
+    순서대로 기다리지 않고 동시에 요청해서 코스 생성 시간을 줄인다.
+    반환값은 {selected_contents 안에서의 인덱스: brief} 형태다.
+    """
+
+    article_indices = [
+        index for index, content in enumerate(selected_contents)
+        if "source" in content
+    ]
+
+    if not article_indices:
+        return {}
+
+    def _generate(index):
+        content = selected_contents[index]
+
+        if content.get("needs_generation"):
+            brief = generate_original_brief(
+                situation=situation,
+                interests=interests,
+                current_state=current_state,
+                estimated_minutes=content["estimated_minutes"],
+            )
+        else:
+            brief = generate_personalized_brief(
+                source_content=content.get("content") or "",
+                source_title=content["title"],
+                situation=situation,
+                interests=interests,
+                estimated_minutes=content["estimated_minutes"],
+            )
+
+        return index, brief
+
+    briefs = {}
+
+    with ThreadPoolExecutor(max_workers=len(article_indices)) as executor:
+        for index, brief in executor.map(_generate, article_indices):
+            briefs[index] = brief
+
+    return briefs
 
 
 def save_course_record(user, execution):
@@ -535,26 +581,16 @@ class CourseViewSet(viewsets.ViewSet):
             )
             content_order += 1
 
-        for content in selected_contents:
+        article_briefs = generate_article_briefs_parallel(
+            selected_contents, situation, interests, context["current_state"]
+        )
+
+        for index, content in enumerate(selected_contents):
 
             # 읽기 콘텐츠
             if "source" in content:
 
-                if content.get("needs_generation"):
-                    brief = generate_original_brief(
-                        situation=situation,
-                        interests=interests,
-                        current_state=context["current_state"],
-                        estimated_minutes=content["estimated_minutes"],
-                    )
-                else:
-                    brief = generate_personalized_brief(
-                        source_content=content.get("content") or "",
-                        source_title=content["title"],
-                        situation=situation,
-                        interests=interests,
-                        estimated_minutes=content["estimated_minutes"],
-                    )
+                brief = article_briefs[index]
 
                 CourseContent.objects.create(
                     course=course,
@@ -1105,25 +1141,15 @@ class CourseViewSet(viewsets.ViewSet):
             )
             content_order += 1
 
-        for content in selected_contents:
+        article_briefs = generate_article_briefs_parallel(
+            selected_contents, situation, interests, context["current_state"]
+        )
+
+        for index, content in enumerate(selected_contents):
 
             if "source" in content:
 
-                if content.get("needs_generation"):
-                    brief = generate_original_brief(
-                        situation=situation,
-                        interests=interests,
-                        current_state=context["current_state"],
-                        estimated_minutes=content["estimated_minutes"],
-                    )
-                else:
-                    brief = generate_personalized_brief(
-                        source_content=content.get("content") or "",
-                        source_title=content["title"],
-                        situation=situation,
-                        interests=interests,
-                        estimated_minutes=content["estimated_minutes"],
-                    )
+                brief = article_briefs[index]
 
                 CourseContent.objects.create(
                     course=course,
