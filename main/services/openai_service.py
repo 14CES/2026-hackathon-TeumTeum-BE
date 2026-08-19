@@ -751,6 +751,7 @@ def get_recommended_contents(user):
             "url": video.url,
             "thumbnail": video.thumbnail_url,
             "channel": video.channel_name,
+            "duration_seconds": video.duration_seconds,
             "original_estimated_minutes": video.estimated_minutes,
             "estimated_minutes": video.estimated_minutes,
         })

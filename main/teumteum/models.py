@@ -82,6 +82,7 @@ class YoutubeVideoSource(models.Model):
     channel_name = models.CharField(max_length=255, null=True, blank=True)
     thumbnail_url = models.URLField(null=True, blank=True)
     estimated_minutes = models.IntegerField()
+    duration_seconds = models.IntegerField(default=0)   # 실제 영상 길이(초 단위). 코스 총 시간을 초 단위로 정밀하게 계산할 때 씀
     tags = models.JSONField(default=list)   # 회복방식과 매칭 (예: "스트레칭")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
