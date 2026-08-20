@@ -85,20 +85,20 @@ def _pick_discovery_articles(user, user_topics, user_state, user_place, count=4)
 
     unmatched_articles = [a for a in pool if a not in matched_articles]
 
-    # 오늘 날짜 + 이 유저를 시드로 써서, 하루 동안은 같은 추천이 유지되고
-    # (새로고침해도 안 바뀜) 유저마다는 서로 다르게, 날짜가 바뀌면 다시 랜덤으로 섞인다.
+
     seed_key = f"{timezone.now().date().isoformat()}-{user.guest_uuid}"
     daily_random = random.Random(seed_key)
 
-    # 사용자 맞춤(matched) 안에서 랜덤으로 섞는다 -> 매칭된 게 우선이되, 매번 같은 것만 뜨지 않게
     daily_random.shuffle(matched_articles)
     daily_random.shuffle(unmatched_articles)
 
-    # 맞춤 콘텐츠가 count보다 적어도, 미매칭 아티클로 채워서 개수는 항상 맞춘다
     return (matched_articles + unmatched_articles)[:count]
 
 
 def generate_ai_recommendation_reason(user, article):
+
+    if not Record.objects.filter(user=user).exists():
+        return None
 
     # [상세 화면 상단] AI 역할: 당신에게 추천한 이유 생성
     return generate_discovery_recommendation_reason(
