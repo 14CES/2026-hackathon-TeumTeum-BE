@@ -7,7 +7,7 @@ from openai import OpenAI
 from django.conf import settings
 
 from onboarding.models import UserProfile
-from teumteum.models import MainAnswer, CourseContent, CourseExecution, WellnessArticleSource, YoutubeVideoSource
+from teumteum.models import MainAnswer, CourseContent, CourseExecution, WellnessArticleSource, YoutubeVideoSource, SharedVideo
 
 from services.youtube import search_youtube
 
@@ -688,6 +688,32 @@ def get_recommended_contents(user):
 
     seen_youtube_urls = set()
 
+    # ---- 사용자가 공유했던 영상 중, 이번 회복 방식과 태그가 맞고 아직 안 쓴 영상은 우선 후보로 섞는다 ----
+    shared_videos = SharedVideo.objects.filter(
+        user=user, is_used=False
+    ).exclude(tags=[])
+
+    shared_video_contents = [
+        {
+            "title": shared.title,
+            "url": shared.url,
+            "thumbnail": shared.thumbnail_url,
+            "channel": shared.channel_name,
+            "duration_seconds": shared.duration_seconds,
+            "original_estimated_minutes": shared.estimated_minutes,
+            "estimated_minutes": shared.estimated_minutes,
+            "is_shared": True,
+            "shared_video_id": shared.id,
+        }
+        for shared in shared_videos
+        if set(shared.tags) & set(context["content_types"])
+    ]
+
+    for content in shared_video_contents:
+        seen_youtube_urls.add(content["url"])
+
+    print(f"공유 영상 우선 후보: {len(shared_video_contents)}")
+
     # 검색어별로 순서대로 기다리지 않고 동시에 유튜브를 검색해서 시간을 줄인다
     all_queries = [
         query
@@ -797,6 +823,8 @@ def get_recommended_contents(user):
     # 분당 모듈 개수 표의 최대치(4개)까지 고를 수 있도록 후보를 충분히 확보한다
     article_contents = select_wellness_articles(user, interests, max_count=4)
 
+    youtube_contents = shared_video_contents + youtube_contents
+
     print("===== 최종 후보 =====")
     print("최종 원문 후보 수:", len(article_contents))
     print("최종 유튜브 후보 수:", len(youtube_contents))
@@ -885,3 +913,46 @@ def generate_discovery_one_line_summary(article_title, article_content):
         if article_content:
             return article_content[:70].rstrip() + "…"
         return "잠시 화면을 멈추고 몸의 긴장을 푸는 것만으로도 다음 일정을 가볍게 시작할 수 있어요."
+
+
+def classify_shared_video_tag(title, channel_name):
+    """
+    [공유 영상] AI 역할: 사용자가 공유한 유튜브 영상을 회복 방식으로 분류
+    - 제목/채널명만 보고 듣기/스트레칭/마음 정리 중 하나로 판단, 애매하거나 무관하면 빈 리스트
+    """
+    prompt = f"""
+너는 웰니스 코치다. 사용자가 유튜브 영상을 하나 공유했다.
+아래 제목과 채널명만 보고, 이 영상이 우리 서비스의 회복 방식 중
+어디에 가장 가까운지 판단해라.
+
+[영상 제목]
+{title}
+
+[채널명]
+{channel_name or ""}
+
+[회복 방식 종류]
+- 듣기: 음악, 백색소음, ASMR, 라디오처럼 듣기만 하는 콘텐츠
+- 스트레칭: 스트레칭, 운동, 요가처럼 몸을 움직이는 콘텐츠
+- 마음 정리: 명상, 호흡, 마음챙김처럼 생각을 정리하는 콘텐츠
+
+[출력 규칙]
+1. 위 세 가지 중 하나만 정확히 그대로 출력한다: 듣기, 스트레칭, 마음 정리
+2. 셋 중 어디에도 해당하지 않거나 웰니스/회복과 무관해 보이면 "없음"이라고 출력한다.
+3. 다른 설명 없이 결과 한 단어만 출력한다.
+"""
+
+    try:
+        response = client.responses.create(
+            model="gpt-5-mini",
+            input=prompt
+        )
+        result = response.output_text.strip()
+    except Exception as e:
+        print("공유 영상 분류 실패:", e)
+        return []
+
+    if result in YOUTUBE_SEARCH_CONTENT_TYPES:
+        return [result]
+
+    return []

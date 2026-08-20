@@ -10,6 +10,22 @@ class MainGETSerializer(serializers.Serializer):
     )
 
 
+class ShareVideoSerializer(serializers.Serializer):
+    guest_uuid = serializers.UUIDField(
+        error_messages={
+            "required": "이 필드는 필수 항목입니다.",
+            "invalid": "유효한 UUID 형식이 아닙니다."
+        }
+    )
+
+    url = serializers.URLField(
+        error_messages={
+            "required": "이 필드는 필수 항목입니다.",
+            "invalid": "유효한 URL 형식이 아닙니다."
+        }
+    )
+
+
 class CourseRatingSerializer(serializers.Serializer):
     guest_uuid = serializers.UUIDField(
         error_messages={
@@ -239,6 +255,7 @@ class CourseContentSerializer(serializers.ModelSerializer):
             "question_options",
             "allow_text_input",
             "estimated_minutes",
+            "duration_seconds",
         ]
 
 
