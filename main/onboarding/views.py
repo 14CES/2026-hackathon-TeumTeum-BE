@@ -14,6 +14,7 @@ class OnboardingQuestionView(APIView):
                     "order": 1,
                     "question_id": 1,
                     "question": "평소 관심 있는 회복 방식은 무엇인가요?",
+                    "description": "코스 추천에 활용돼요. (복수 선택 가능)",
                     "options": [
                         {"option_id": 1, "content": "읽기"},
                         {"option_id": 2, "content": "듣기"},
@@ -37,6 +38,7 @@ class OnboardingQuestionView(APIView):
                     "order": 3,
                     "question_id": 3,
                     "question": "요즘 어떤 웰니스에 마음이 가시나요?",
+                    "description": "가장 흥미로운 주제를 선택해주세요. (복수 선택 가능)",
                     "options": [
                         {"option_id": 9, "content": "피부"},
                         {"option_id": 10, "content": "마음"},
