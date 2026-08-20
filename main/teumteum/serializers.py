@@ -239,6 +239,7 @@ class CourseContentSerializer(serializers.ModelSerializer):
             "question_options",
             "allow_text_input",
             "estimated_minutes",
+            "duration_seconds",
         ]
 
 

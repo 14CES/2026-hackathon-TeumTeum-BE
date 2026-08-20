@@ -136,6 +136,7 @@ class CourseContent(models.Model):
     allow_text_input = models.BooleanField(default=False)                      # 자유 입력 허용 여부 (reflection)
 
     estimated_minutes = models.IntegerField()
+    duration_seconds = models.IntegerField(default=0)   # 실제(또는 추정) 길이, 초 단위. 유튜브는 실제 영상 길이, 나머지는 estimated_minutes*60
 
     class Meta:
         db_table = "course_contents"
