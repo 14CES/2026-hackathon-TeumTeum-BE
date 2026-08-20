@@ -209,3 +209,6 @@ pytest
 ![YouTube](https://img.shields.io/badge/YouTube-Data%20API%20v3-FF0000?style=flat-square&logo=youtube&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Container-2496ED?style=flat-square&logo=docker&logoColor=white)
 ![Nginx](https://img.shields.io/badge/Nginx-Reverse%20Proxy-009639?style=flat-square&logo=nginx&logoColor=white)
+
+---
+##무의식적인 숏폼 소비를 줄이고 공백시간을 실제 휴식 시간으로 바꾸는 것, 하루 10분이라도 자신을 챙기는 행동을 반복하며 웰니스에 대한 진입장벽을 낮추는 것, "오늘도 시간을 버렸다"가 아니라 "오늘 15분은 나를 위해 썼다"는 경험을 주는 것이 틈틈이 만들고 싶은 변화입니다.
