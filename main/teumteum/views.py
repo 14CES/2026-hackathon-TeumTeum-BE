@@ -187,9 +187,14 @@ def save_course_record(user, execution):
 
     course_contents = execution.course.contents.all().order_by("content_order")
 
-    content_types_used = ",".join(
-        content.content_type for content in course_contents
-    )
+    # 코스 생성 시점에 사용자가 실제로 고른 회복 방식(이미 한글) 을 그대로 기록 카테고리로 쓴다.
+    # 옛날에 생성된 코스는 content_types가 비어있을 수 있으니, 그런 경우에만 내부 content_type 코드로 대체한다.
+    if execution.course.content_types:
+        content_types_used = ",".join(execution.course.content_types)
+    else:
+        content_types_used = ",".join(
+            content.content_type for content in course_contents
+        )
 
     ai_title = generate_course_summary_title(
         [content.title for content in course_contents if content.title]
@@ -573,6 +578,7 @@ class CourseViewSet(viewsets.ViewSet):
             total_seconds=real_total_seconds,
             place=context["main_situation"],
             current_state=context["current_state"],
+            content_types=context["content_types"],
         )
 
         # 8. 선택된 콘텐츠 저장
@@ -1234,6 +1240,7 @@ class CourseViewSet(viewsets.ViewSet):
             total_seconds=real_total_seconds,
             place=context["main_situation"],
             current_state=context["current_state"],
+            content_types=context["content_types"],
         )
 
         # 7. CourseContent 저장

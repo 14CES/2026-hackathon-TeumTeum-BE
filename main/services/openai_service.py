@@ -688,6 +688,18 @@ def get_recommended_contents(user):
 
     seen_youtube_urls = set()
 
+    # ---- 지난번 AI 분류가 실패(예: 요청 한도 초과)해서 tags가 비어있는 공유 영상은
+    #      코스를 새로 만들 때마다 한 번씩 재분류를 시도한다 ----
+    unclassified_shared_videos = SharedVideo.objects.filter(
+        user=user, is_used=False, tags=[]
+    )
+
+    for shared in unclassified_shared_videos:
+        retried_tags = classify_shared_video_tag(shared.title, shared.channel_name)
+        if retried_tags:
+            shared.tags = retried_tags
+            shared.save(update_fields=["tags"])
+
     # ---- 사용자가 공유했던 영상 중, 이번 회복 방식과 태그가 맞고 아직 안 쓴 영상은 우선 후보로 섞는다 ----
     shared_videos = SharedVideo.objects.filter(
         user=user, is_used=False
