@@ -15,6 +15,8 @@ CHARS_PER_MINUTE = 300
 
 
 def _get_user_topics(user):
+    if not user:
+        return []
     try:
         context = get_user_context(user)
         topics = context.get("topics", [])
@@ -85,10 +87,12 @@ def _pick_discovery_articles(user, user_topics, user_state, user_place, count=4)
 
     unmatched_articles = [a for a in pool if a not in matched_articles]
 
-
-    seed_key = f"{timezone.now().date().isoformat()}-{user.guest_uuid}"
+    # [수정] user가 None이거나 guest_uuid가 없는 경우 대비한 안전 처리
+    guest_uuid = getattr(user, 'guest_uuid', 'anonymous_guest') if user else 'anonymous_guest'
+    seed_key = f"{timezone.now().date().isoformat()}-{guest_uuid}"
     daily_random = random.Random(seed_key)
 
+    # 사용자 맞춤(matched) 안에서 랜덤으로 섞는다
     daily_random.shuffle(matched_articles)
     daily_random.shuffle(unmatched_articles)
 
@@ -96,10 +100,6 @@ def _pick_discovery_articles(user, user_topics, user_state, user_place, count=4)
 
 
 def generate_ai_recommendation_reason(user, article):
-
-    if not Record.objects.filter(user=user).exists():
-        return None
-
     # [상세 화면 상단] AI 역할: 당신에게 추천한 이유 생성
     return generate_discovery_recommendation_reason(
         user=user,
@@ -109,9 +109,7 @@ def generate_ai_recommendation_reason(user, article):
 
 
 def generate_ai_summary(article):
-
     # [상세 화면 하단] AI 역할: 틈틈 한 줄 정리 생성
-
     if getattr(article, 'ai_summary', None) and article.ai_summary.strip():
         return article.ai_summary
 
@@ -122,31 +120,32 @@ def generate_ai_summary(article):
 
 
 def get_discovery_data(user):
-
-    records = Record.objects.filter(user=user).select_related('course')
+    # [수정] user가 없거나 온보딩 전이어도 안전하게 빈 쿼리셋 처리
+    records = Record.objects.filter(user=user).select_related('course') if user else Record.objects.none()
     topics = _get_user_topics(user)
 
-    # 최근 질문 답변/기록에서 상태 및 장소 파악
+    # 최근 질문 답변/기록에서 상태 및 장소 파악 기본값
     recent_state = "피곤해요"
     recent_place = "이동 중"
 
-    try:
-        context = get_user_context(user)
-        if context.get("current_state"):
-            recent_state = context["current_state"][0]
-        if context.get("main_situation"):
-            recent_place = context["main_situation"]
-    except Exception:
-        recent_record = records.order_by('-started_at').first()
-        if recent_record and hasattr(recent_record, 'course') and recent_record.course:
-            if getattr(recent_record.course, 'current_state', None):
-                recent_state = recent_record.course.current_state[0] if isinstance(recent_record.course.current_state, list) else recent_record.course.current_state
-            if getattr(recent_record.course, 'place', None):
-                recent_place = recent_record.course.place
+    if user:
+        try:
+            context = get_user_context(user)
+            if context.get("current_state"):
+                recent_state = context["current_state"][0]
+            if context.get("main_situation"):
+                recent_place = context["main_situation"]
+        except Exception:
+            recent_record = records.order_by('-started_at').first()
+            if recent_record and hasattr(recent_record, 'course') and recent_record.course:
+                if getattr(recent_record.course, 'current_state', None):
+                    recent_state = recent_record.course.current_state[0] if isinstance(recent_record.course.current_state, list) else recent_record.course.current_state
+                if getattr(recent_record.course, 'place', None):
+                    recent_place = recent_record.course.place
 
     picked = _pick_discovery_articles(user, topics, recent_state, recent_place, count=5)
 
-    # 1. 기록이 없는 신규 유저 또는 초기 응답
+    # 1. 기록이 없거나 온보딩을 안 한 초기 유저
     if not records.exists():
         if picked:
             featured_brief = _to_brief_payload(picked[0], reason="틈틈을 시작한 당신을 위한 추천")

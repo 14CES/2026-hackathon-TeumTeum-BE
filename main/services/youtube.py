@@ -1,6 +1,7 @@
 import math
 import re
 import requests
+from urllib.parse import urlparse, parse_qs
 from django.conf import settings
 
 
@@ -128,3 +129,76 @@ def search_youtube(query, max_results=5):
         })
 
     return videos
+
+
+def extract_youtube_video_id(url):
+    """
+    유튜브 URL 여러 형태(youtu.be/ID?si=..., youtube.com/watch?v=ID,
+    youtube.com/shorts/ID, m.youtube.com/watch?v=ID, youtube.com/embed/ID)에서
+    video_id만 뽑아낸다. 유튜브 URL이 아니거나 못 찾으면 None을 반환한다.
+    """
+
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+
+    host = (parsed.hostname or "").lower()
+
+    if "youtube.com" in host:
+        if parsed.path == "/watch":
+            video_ids = parse_qs(parsed.query).get("v")
+            return video_ids[0] if video_ids else None
+
+        for prefix in ("/shorts/", "/embed/"):
+            if parsed.path.startswith(prefix):
+                candidate = parsed.path[len(prefix):].split("/")[0]
+                return candidate or None
+
+        return None
+
+    if host == "youtu.be":
+        candidate = parsed.path.lstrip("/").split("/")[0]
+        return candidate or None
+
+    return None
+
+
+def get_youtube_video_info(video_id):
+    """
+    이미 알고 있는 video_id 하나의 메타데이터(제목/채널/썸네일/길이)를 조회한다.
+    비공개/삭제된 영상 등으로 못 찾으면 None을 반환한다.
+    """
+
+    videos_url = "https://www.googleapis.com/youtube/v3/videos"
+
+    params = {
+        "key": settings.YOUTUBE_API_KEY,
+        "part": "snippet,contentDetails",
+        "id": video_id,
+    }
+
+    try:
+        response = requests.get(videos_url, params=params, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"유튜브 영상 정보 조회 실패 (video_id: {video_id}):", e)
+        return None
+
+    items = data.get("items", [])
+
+    if not items:
+        return None
+
+    item = items[0]
+    duration_seconds = parse_duration(item["contentDetails"]["duration"])
+
+    return {
+        "video_id": video_id,
+        "title": item["snippet"]["title"],
+        "channel_name": item["snippet"]["channelTitle"],
+        "thumbnail_url": item["snippet"]["thumbnails"]["medium"]["url"],
+        "duration_seconds": duration_seconds,
+        "estimated_minutes": math.ceil(duration_seconds / 60),
+    }
