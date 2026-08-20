@@ -589,6 +589,7 @@ class CourseViewSet(viewsets.ViewSet):
                 question_options=activity_module.question_options,
                 allow_text_input=activity_module.allow_text_input,
                 estimated_minutes=activity_module.estimated_minutes,
+                duration_seconds=activity_module.estimated_minutes * 60,
             )
             content_order += 1
 
@@ -609,6 +610,7 @@ class CourseViewSet(viewsets.ViewSet):
                 question=prep["question"],
                 allow_text_input=True,
                 estimated_minutes=NEXT_PREP_MINUTES,
+                duration_seconds=NEXT_PREP_MINUTES * 60,
             )
             content_order += 1
 
@@ -635,6 +637,7 @@ class CourseViewSet(viewsets.ViewSet):
                     source=content.get("source"),
                     source_article_id=content.get("source_article_id"),
                     estimated_minutes=content["estimated_minutes"],
+                    duration_seconds=content["estimated_minutes"] * 60,
                 )
 
             # YouTube 콘텐츠
@@ -650,6 +653,7 @@ class CourseViewSet(viewsets.ViewSet):
                     thumbnail_url=content["thumbnail"],
                     channel_name=content["channel"],
                     estimated_minutes=content["estimated_minutes"],
+                    duration_seconds=content.get("duration_seconds", content["estimated_minutes"] * 60),
                 )
 
             content_order += 1
@@ -1239,6 +1243,7 @@ class CourseViewSet(viewsets.ViewSet):
                 question_options=activity_module.question_options,
                 allow_text_input=activity_module.allow_text_input,
                 estimated_minutes=activity_module.estimated_minutes,
+                duration_seconds=activity_module.estimated_minutes * 60,
             )
             content_order += 1
 
@@ -1259,6 +1264,7 @@ class CourseViewSet(viewsets.ViewSet):
                 question=prep["question"],
                 allow_text_input=True,
                 estimated_minutes=NEXT_PREP_MINUTES,
+                duration_seconds=NEXT_PREP_MINUTES * 60,
             )
             content_order += 1
 
@@ -1284,6 +1290,7 @@ class CourseViewSet(viewsets.ViewSet):
                     source=content.get("source"),
                     source_article_id=content.get("source_article_id"),
                     estimated_minutes=content["estimated_minutes"],
+                    duration_seconds=content["estimated_minutes"] * 60,
                 )
 
             else:
@@ -1298,6 +1305,7 @@ class CourseViewSet(viewsets.ViewSet):
                     thumbnail_url=content["thumbnail"],
                     channel_name=content["channel"],
                     estimated_minutes=content["estimated_minutes"],
+                    duration_seconds=content.get("duration_seconds", content["estimated_minutes"] * 60),
                 )
 
             content_order += 1
