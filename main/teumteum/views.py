@@ -836,6 +836,72 @@ class CourseViewSet(viewsets.ViewSet):
         )
 
 
+    # POST /main/teumteum/execution/{execution_id}/skip
+    def skip(self, request, execution_id=None):
+        # 콘텐츠를 건너뛸 때 호출. pause+resume을 한 번에 처리하는 것과 같다 —
+        # 지금 콘텐츠에서 실제로 지난 시간만 사용시간에 반영하고 건너뛴 나머지는 버린 뒤,
+        # 다음 콘텐츠부터 타이머를 새로 시작한다. paused 상태를 거치지 않아서
+        # 중간에 요청이 끊겨도 실행이 paused에 낀 채로 멈추는 일이 없다.
+
+        # 1. guest_uuid 검증
+        serializer = MainGETSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        guest_uuid = serializer.validated_data["guest_uuid"]
+
+        # 2. 사용자 조회
+        try:
+            user = User.objects.get(guest_uuid=guest_uuid)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "사용자 정보를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 3. 실행 기록 조회
+        try:
+            execution = CourseExecution.objects.get(
+                id=execution_id,
+                user=user,
+                status="in_progress"
+            )
+        except CourseExecution.DoesNotExist:
+            return Response(
+                {"detail": "현재 실행 중인 코스가 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 4. 지금 콘텐츠에서 실제로 지난 시간만 사용시간에 반영 (건너뛴 나머지는 버림)
+        now = timezone.now()
+
+        elapsed_seconds = round(
+            (now - execution.started_at).total_seconds()
+        )
+
+        execution.used_seconds += elapsed_seconds
+
+        # 최대 설정 시간 초과 방지
+        if execution.used_seconds > execution.target_seconds:
+            execution.used_seconds = execution.target_seconds
+
+        # 5. 다음 콘텐츠부터 타이머 기준을 다시 잡는다 (status는 계속 in_progress로 유지)
+        execution.started_at = now
+        execution.save()
+
+        # 6. 남은 시간 계산
+        remaining_seconds = execution.target_seconds - execution.used_seconds
+
+        return Response(
+            {
+                "execution_id": execution.id,
+                "status": execution.status,
+                "used_seconds": execution.used_seconds,
+                "remaining_seconds": remaining_seconds,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
     def stop(self, request, execution_id=None):
 
         # 1. guest_uuid 검증
@@ -963,6 +1029,13 @@ class CourseViewSet(viewsets.ViewSet):
         # 5-2. 기록(Record) 저장
         record = save_course_record(user, execution)
 
+        # 5-3. 완료 화면 통계 (이 코스의 콘텐츠 개수, 오늘 완료한 코스 횟수)
+        completed_contents = execution.course.contents.count()
+        today_courses = Record.objects.filter(
+            user=user,
+            completed_at__date=ended_at.date()
+        ).count()
+
         # 6. 결과 반환
         return Response(
             {
@@ -971,6 +1044,8 @@ class CourseViewSet(viewsets.ViewSet):
                 "status": execution.status,
                 "used_seconds": execution.used_seconds,
                 "record_id": record.id,
+                "completed_contents": completed_contents,
+                "today_courses": today_courses,
             },
             status=status.HTTP_200_OK
         )
