@@ -109,7 +109,7 @@ def get_mypage_dashboard_data(user):
             # 1) 활동 카테고리 검증 및 매핑
             cat = getattr(r, 'category', None) or getattr(r, 'course_type', None)
             if cat:
-                cat_list = cat if isinstance(cat, list) else [cat]
+                cat_list = cat if isinstance(cat, list) else str(cat).split(",")
                 for c in cat_list:
                     mapped_cat = CATEGORY_MAP.get(c, str(c))
                     # 유효한 활동 카테고리만 추가 (아티클 제목 등 제외)
@@ -154,9 +154,16 @@ def get_mypage_dashboard_data(user):
 
     if has_records and best_activity:
         try:
+            def _record_categories(r):
+                cat = getattr(r, 'category', None)
+                if not cat:
+                    return []
+                cat_list = cat if isinstance(cat, list) else str(cat).split(",")
+                return [CATEGORY_MAP.get(c, str(c)) for c in cat_list]
+
             best_activity_records = [
                 r for r in user_records
-                if CATEGORY_MAP.get(getattr(r, 'category', None), str(getattr(r, 'category', ''))) == best_activity
+                if best_activity in _record_categories(r)
             ]
 
             bucket_stats = {}
