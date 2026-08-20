@@ -117,9 +117,9 @@ def get_mypage_dashboard_data(user):
                 for item in st_list:
                     states.append(STATE_MAP.get(item, str(item)))
 
-    # B. 코스 기록이 적을 경우 홈 화면 질문 답변(MainAnswer)에서도 추출 시도
+    # B. 코스 기록이 적을 경우 홈 화면 질문 답변에서도 추출 시도
     try:
-        from main.models import MainAnswer
+        from teumteum.models import MainAnswer
         main_answers = MainAnswer.objects.filter(user=user)
         for ma in main_answers:
             if hasattr(ma, 'place_option') and ma.place_option:
