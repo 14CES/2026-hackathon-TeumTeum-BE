@@ -15,6 +15,7 @@ default_router = routers.SimpleRouter(trailing_slash=False)
 default_router.register("main", MainViewSet, basename="main")
 default_router.register("main/questions", MainQuestionViewSet, basename="questions")
 default_router.register("main/teumteum", CourseViewSet, basename="course")
+default_router.register("main/share", ShareVideoViewSet, basename="share")
 default_router.register("mypage/weekly-usage", WeeklyUsageViewSet, basename="weekly-usage")
 
 urlpatterns = [

@@ -15,6 +15,10 @@ RECOVERY_METHOD_TO_ACTIVITY_TYPE = {
     "마음 정리": "reflection",
 }
 
+# 사용자가 직접 공유한 영상이 조합에 포함되면, 시간 차이 비교에서 이만큼 유리하게 쳐준다
+# (다른 조합이 확연히 더 잘 맞으면 밀리지만, 시간 차이가 비슷할 땐 공유 영상이 우선된다)
+SHARED_VIDEO_PRIORITY_BONUS_SECONDS = 120
+
 
 def select_best_contents(
     article_contents,
@@ -143,6 +147,15 @@ def select_best_contents(
                 total_seconds - target_minutes * 60
             )
 
+            # 조합에 공유 영상이 있으면 시간 차이 비교에서 우선권을 준다
+            shared_count = sum(
+                1 for content in youtube_combination
+                if content.get("is_shared")
+            )
+            effective_difference = max(
+                0, difference - shared_count * SHARED_VIDEO_PRIORITY_BONUS_SECONDS
+            )
+
             # 선택된 기사들의 전체 원문 길이 (AI가 새로 쓸 자리는 원문이 없으므로 0으로 취급)
             article_length = sum(
                 len(content.get("content") or "")
@@ -151,18 +164,18 @@ def select_best_contents(
 
             if (
                 best_difference is None
-                or difference < best_difference
+                or effective_difference < best_difference
                 or (
-                    difference == best_difference
+                    effective_difference == best_difference
                     and article_length > best_article_length
                 )
             ):
-                best_difference = difference
+                best_difference = effective_difference
                 best_article_length = article_length
                 best_combinations = [contents]
 
             elif (
-                difference == best_difference
+                effective_difference == best_difference
                 and article_length == best_article_length
             ):
                 best_combinations.append(contents)
