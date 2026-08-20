@@ -103,7 +103,7 @@ def get_mypage_dashboard_data(user):
         for r in user_records:
             cat = getattr(r, 'category', None)
             if cat:
-                cat_list = cat if isinstance(cat, list) else [cat]
+                cat_list = cat if isinstance(cat, list) else str(cat).split(",")
                 for c in cat_list:
                     categories.append(CATEGORY_MAP.get(c, str(c)))
 
@@ -150,9 +150,16 @@ def get_mypage_dashboard_data(user):
 
     if user_records and user_records.exists():
         try:
+            def _record_categories(r):
+                cat = getattr(r, 'category', None)
+                if not cat:
+                    return []
+                cat_list = cat if isinstance(cat, list) else str(cat).split(",")
+                return [CATEGORY_MAP.get(c, str(c)) for c in cat_list]
+
             best_activity_records = [
-                r for r in user_records 
-                if CATEGORY_MAP.get(getattr(r, 'category', None), str(getattr(r, 'category', ''))) == best_activity
+                r for r in user_records
+                if best_activity in _record_categories(r)
             ]
 
             bucket_stats = {}

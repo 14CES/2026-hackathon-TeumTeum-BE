@@ -64,6 +64,7 @@ class Course(models.Model):
     total_seconds = models.IntegerField(default=0)       # 실제 콘텐츠 합계, 초 단위 (정밀한 시간 표시/타이머 기준용)
     place = models.CharField(max_length=50, null=True, blank=True)         # 생성 당시 장소 (마이페이지 패턴 분석용)
     current_state = models.JSONField(default=list, blank=True)             # 생성 당시 현재 상태 (마이페이지 패턴 분석용)
+    content_types = models.JSONField(default=list, blank=True)             # 생성 당시 사용자가 고른 회복 방식 (예: ["스트레칭","듣기"]), 기록 카테고리 표시용
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
