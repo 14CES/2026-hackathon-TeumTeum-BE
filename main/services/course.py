@@ -48,6 +48,11 @@ def select_best_contents(
     -> 기사 0개 + 유튜브 total_count개
     """
 
+    # 활동 모듈/다음 준비 콘텐츠가 자리를 이미 다 써버려서 남은 자리가 없는 경우.
+    # 이걸 그냥 두면 아래 비율 계산에서 유튜브 개수가 음수로 나와 combinations()가 죽는다.
+    if total_count <= 0:
+        return []
+
     has_reading = "읽기" in content_types
 
     youtube_type_count = sum(
