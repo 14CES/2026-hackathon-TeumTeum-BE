@@ -911,7 +911,9 @@ def generate_discovery_one_line_summary(article_title, article_content):
 
 [출력 규칙]
 1. 마크다운이나 따옴표 없이, 완성된 1개의 한국어 문장만 출력한다.
-2. 예시: "화면에서 잠시 눈을 떼고 목과 어깨를 움직여주는 것만으로도 오후 피로를 크게 줄일 수 있어요."
+2. 반드시 문장을 완전히 끝맺고, 말줄임표(... 또는 …)는 사용하지 않는다.
+3. 공백 포함 80자 이내로 작성한다.
+4. 예시: "화면에서 잠시 눈을 떼고 목과 어깨를 움직여주는 것만으로도 오후 피로를 크게 줄일 수 있어요."
 """
 
     try:
@@ -919,11 +921,31 @@ def generate_discovery_one_line_summary(article_title, article_content):
             model="gpt-5-mini",
             input=prompt
         )
-        return response.output_text.strip()
+        summary = response.output_text.strip().strip('"\'')
+        summary = re.sub(r"\.{3,}|…+", "", summary).strip()
+        summary = re.sub(r"^[-*]\s+", "", summary)
+
+        # 모델이 제한 글자 수를 넘기면 마지막으로 완결된 문장까지만 사용한다.
+        if len(summary) > 80:
+            completed_sentences = re.findall(r"[^.!?。！？]*[.!?。！？]", summary)
+            summary = next(
+                (
+                    sentence.strip()
+                    for sentence in reversed(completed_sentences)
+                    if len(sentence.strip()) <= 80
+                ),
+                "",
+            )
+
+        if not summary:
+            return "잠시 화면을 멈추고 몸의 긴장을 푸는 것만으로도 다음 일정을 가볍게 시작할 수 있어요."
+
+        if summary[-1] not in ".!?。！？":
+            summary += "요."
+
+        return summary
     except Exception as e:
         print("발견 탭 한 줄 정리 생성 실패:", e)
-        if article_content:
-            return article_content[:70].rstrip() + "…"
         return "잠시 화면을 멈추고 몸의 긴장을 푸는 것만으로도 다음 일정을 가볍게 시작할 수 있어요."
 
 
