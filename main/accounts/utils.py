@@ -4,7 +4,7 @@ from django.utils import timezone
 from django.db.models import Sum
 
 
-# 코드/ID로 저장되어 있을 경우를 대비한 매핑 테이블
+# 코드/ID 매핑 테이블
 PLACE_MAP = {
     1: "이동 중", 2: "카페·실내", 3: "학교·회사", 4: "집", 5: "기타",
     "1": "이동 중", "2": "카페·실내", "3": "학교·회사", "4": "집", "5": "기타"
@@ -19,6 +19,9 @@ CATEGORY_MAP = {
     1: "읽기", 2: "듣기", 3: "스트레칭", 4: "마음 정리",
     "1": "읽기", "2": "듣기", "3": "스트레칭", "4": "마음 정리"
 }
+
+# 유효한 활동 카테고리 (긴 뉴스/아티클 제목 유입 방지)
+VALID_ACTIVITIES = {"스트레칭", "마음 정리", "읽기", "듣기", "준비-틈"}
 
 
 def _format_hour_range(start_hour):
@@ -64,7 +67,9 @@ def get_mypage_dashboard_data(user):
     exec_count = 0
     comp_rate = 0
 
-    if user_records and user_records.exists():
+    has_records = user_records and user_records.exists()
+
+    if has_records:
         try:
             this_week_qs = user_records.filter(started_at__gte=start_of_current_week)
             last_week_qs = user_records.filter(
@@ -84,9 +89,9 @@ def get_mypage_dashboard_data(user):
     diff_min = this_week_min - last_week_min
     growth_rate = round((diff_min / last_week_min * 100)) if last_week_min > 0 else 0
 
-    # 3. 평균 틈 시간 계산
-    avg_duration = 10  # 기본값
-    if user_records and user_records.exists():
+    # 3. 평균 틈 시간 계산 (기록 없으면 None)
+    avg_duration = None
+    if has_records:
         try:
             tot = user_records.aggregate(total=Sum('completed_minutes'))['total'] or 0
             count = user_records.count()
@@ -95,60 +100,59 @@ def get_mypage_dashboard_data(user):
         except Exception:
             pass
 
-    # 4. 홈 화면 입력값(패턴) 추출 및 카운팅
+    # 4. 홈 화면 입력값/기록에서 패턴 추출
     categories, places, states = [], [], []
 
     # A. Record에서 추출
-    if user_records and user_records.exists():
+    if has_records:
         for r in user_records:
-            cat = getattr(r, 'category', None)
+            # 1) 활동 카테고리 검증 및 매핑
+            cat = getattr(r, 'category', None) or getattr(r, 'course_type', None)
             if cat:
                 cat_list = cat if isinstance(cat, list) else str(cat).split(",")
                 for c in cat_list:
-                    categories.append(CATEGORY_MAP.get(c, str(c)))
+                    mapped_cat = CATEGORY_MAP.get(c, str(c))
+                    # 유효한 활동 카테고리만 추가 (아티클 제목 등 제외)
+                    if mapped_cat in VALID_ACTIVITIES:
+                        categories.append(mapped_cat)
 
+            # 2) 장소 추출
             place = getattr(r, 'place', None) or (getattr(r.course, 'place', None) if getattr(r, 'course', None) else None)
             if place:
                 places.append(PLACE_MAP.get(place, str(place)))
 
+            # 3) 상태 추출
             st = getattr(r, 'current_state', None) or (getattr(r.course, 'current_state', None) if getattr(r, 'course', None) else None)
             if st:
                 st_list = st if isinstance(st, list) else [st]
                 for item in st_list:
                     states.append(STATE_MAP.get(item, str(item)))
 
-    # B. 코스 기록이 적을 경우 홈 화면 질문 답변(MainAnswer)에서도 추출 시도
-    try:
-        from main.models import MainAnswer
-        main_answers = MainAnswer.objects.filter(user=user)
-        for ma in main_answers:
-            if hasattr(ma, 'place_option') and ma.place_option:
-                places.append(PLACE_MAP.get(ma.place_option, str(ma.place_option)))
-            if hasattr(ma, 'current_state_options') and ma.current_state_options:
-                opts = ma.current_state_options if isinstance(ma.current_state_options, list) else [ma.current_state_options]
-                for opt in opts:
-                    states.append(STATE_MAP.get(opt, str(opt)))
-    except Exception:
-        pass
+    # B. 코스 기록이 없을 때 홈 질문 답변(MainAnswer)에서 장소/상태 참조
+    if not places or not states:
+        try:
+            from main.models import MainAnswer
+            main_answers = MainAnswer.objects.filter(user=user)
+            for ma in main_answers:
+                if hasattr(ma, 'place_option') and ma.place_option:
+                    places.append(PLACE_MAP.get(ma.place_option, str(ma.place_option)))
+                if hasattr(ma, 'current_state_options') and ma.current_state_options:
+                    opts = ma.current_state_options if isinstance(ma.current_state_options, list) else [ma.current_state_options]
+                    for opt in opts:
+                        states.append(STATE_MAP.get(opt, str(opt)))
+        except Exception:
+            pass
 
-    # C. 온보딩 초기값 Fallback
-    profile = getattr(user, 'profile', None) if user else None
-    pref_topic = "스트레칭"
-    if profile and getattr(profile, 'preferred_type', None):
-        if isinstance(profile.preferred_type, dict):
-            pref_topic = profile.preferred_type.get('wellness', ["스트레칭"])[0]
-        elif isinstance(profile.preferred_type, list) and len(profile.preferred_type) > 0:
-            pref_topic = str(profile.preferred_type[0])
-
-    best_activity = Counter(categories).most_common(1)[0][0] if categories else pref_topic
-    most_frequent_place = Counter(places).most_common(1)[0][0] if places else "이동 중"
-    most_frequent_state = Counter(states).most_common(1)[0][0] if states else "피곤함"
+    # C. 최빈값 산출 (기록/선택이 없으면 null(None) 처리)
+    best_activity = Counter(categories).most_common(1)[0][0] if categories else None
+    most_frequent_place = Counter(places).most_common(1)[0][0] if places else None
+    most_frequent_state = Counter(states).most_common(1)[0][0] if states else None
 
     # 5. 피크 시간대 분석
-    peak_hour_text = "오후 2~4시"
-    peak_comp_rate = 90
+    peak_hour_text = None
+    peak_comp_rate = None
 
-    if user_records and user_records.exists():
+    if has_records and best_activity:
         try:
             def _record_categories(r):
                 cat = getattr(r, 'category', None)
@@ -181,25 +185,32 @@ def get_mypage_dashboard_data(user):
         except Exception:
             pass
 
-    suggested_time = min(max(avg_duration, 3), 15)
-    suggested_course_name = f"{suggested_time}분 {best_activity} 코스"
-
-
-    if exec_count == 0:
+    # 6. AI 요약 텍스트 및 추천 구성
+    if exec_count == 0 or not best_activity:
+        place_guide = f"‘{most_frequent_place}’에서 " if most_frequent_place else ""
+        state_guide = f"{most_frequent_state} 상태일 때 " if most_frequent_state else ""
         ai_discovery_text = (
-            f"이번 주에는 ‘{most_frequent_place}’에서 {most_frequent_state} 상태를 자주 느끼셨네요.\n"
-            f"아직 완료한 틈 코스가 없어요. 오늘 {suggested_time}분 {best_activity} 코스로 가볍게 첫 번째 틈을 시작해볼까요?"
+            f"아직 완료한 틈 코스가 없어요.\n"
+            f"오늘 {place_guide}{state_guide}가벼운 코스로 첫 번째 틈을 완성해보세요!"
         )
+        suggested_course_title = "첫 번째 틈 코스를 시작해보세요"
+        suggested_course_desc = "나에게 맞는 짧은 틈새 회복을 추천해 드릴게요."
+        suggested_course_name = "가벼운 리셋 코스"
+        suggested_time = avg_duration if avg_duration else 5
     else:
         ai_discovery_text = (
-            f"이번 주에는 ‘{most_frequent_place}’에 {most_frequent_state}을 가장 많이 느꼈어요.\n"
-            f"특히 {peak_hour_text}에 {best_activity} 코스의 완료율이 {peak_comp_rate}%로 가장 높았어요.\n"
+            f"이번 주에는 ‘{most_frequent_place or '일상'}’에 {most_frequent_state or '피로'}을 가장 많이 느꼈어요.\n"
+            f"특히 {peak_hour_text or '오후 시간대'}에 {best_activity} 코스의 완료율이 {peak_comp_rate or 100}%로 가장 높았어요.\n"
             f"다음 비슷한 상황에서는 짧은 {best_activity}을 먼저 추천할게요!"
         )
+        suggested_time = min(max(avg_duration or 5, 3), 15)
+        suggested_course_name = f"{suggested_time}분 {best_activity} 코스"
+        suggested_course_title = f"최근 {most_frequent_place or '자주 머무는 곳'}에서 피로도가 높았어요."
+        suggested_course_desc = f"다음에 비슷한 틈이 생기면 {suggested_course_name}를 먼저 추천할게요!"
 
     next_suggestion = {
-        "title": f"최근 {most_frequent_place}에서 피로도가 높았어요.",
-        "description": f"다음에 비슷한 틈이 생기면 {suggested_course_name}를 먼저 추천할게요!",
+        "title": suggested_course_title,
+        "description": suggested_course_desc,
         "preset": {
             "target_minutes": suggested_time,
             "place": most_frequent_place,
