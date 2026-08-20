@@ -74,6 +74,29 @@ class Course(models.Model):
 
 
 
+class SharedVideo(models.Model):
+    # 사용자가 PWA 공유 대상 기능으로 우리 앱에 공유한 유튜브 영상.
+    # AI가 회복방식(듣기/스트레칭/마음 정리)으로 분류해두고, 맞는 코스 생성 시 우선 후보로 반영한다.
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="shared_videos")
+    video_id = models.CharField(max_length=32)
+    url = models.URLField()
+    title = models.CharField(max_length=255)
+    channel_name = models.CharField(max_length=255, null=True, blank=True)
+    thumbnail_url = models.URLField(null=True, blank=True)
+    estimated_minutes = models.IntegerField()
+    duration_seconds = models.IntegerField(default=0)
+    tags = models.JSONField(default=list)   # AI가 분류한 회복방식 (예: ["스트레칭"]), 안 맞으면 빈 리스트
+    is_used = models.BooleanField(default=False)   # 코스에 한 번 반영되면 True로 소진 처리
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "shared_videos"
+        unique_together = ("user", "video_id")   # 같은 유저가 같은 영상 중복 공유 방지
+
+    def __str__(self):
+        return self.title
+
+
 class YoutubeVideoSource(models.Model):
     # 유튜브 실시간 검색이 부족할 때 쓰는 더미 풀. "스트레칭/케어" 계열 영상을 미리 채워둔다.
     video_id = models.CharField(max_length=32, unique=True)

@@ -14,6 +14,7 @@ from .serializers import (
     CourseExecutionSerializer,
     CourseContentSerializer,
     CourseRatingSerializer,
+    ShareVideoSerializer,
 )
 
 from .models import (
@@ -25,12 +26,13 @@ from .models import (
     CourseContent,
     CourseExecution,
     WeeklyUsage,
+    SharedVideo,
 )
 
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 
-from services.openai_service import get_user_context, get_recommended_contents, generate_personalized_brief, generate_original_brief, generate_next_prep_brief, generate_course_summary_title
+from services.openai_service import get_user_context, get_recommended_contents, generate_personalized_brief, generate_original_brief, generate_next_prep_brief, generate_course_summary_title, classify_shared_video_tag
 from services.course import (
     select_best_contents_in_range,
     get_module_count_range,
@@ -38,6 +40,7 @@ from services.course import (
     select_activity_module,
     YOUTUBE_CONTENT_TYPES,
 )
+from services.youtube import extract_youtube_video_id, get_youtube_video_info
 
 from accounts.models import User
 from onboarding.models import UserProfile
@@ -574,6 +577,7 @@ class CourseViewSet(viewsets.ViewSet):
 
         # 8. 선택된 콘텐츠 저장
         content_order = 1
+        used_shared_video_ids = []
 
         if activity_module:
             CourseContent.objects.create(
@@ -656,7 +660,13 @@ class CourseViewSet(viewsets.ViewSet):
                     duration_seconds=content.get("duration_seconds", content["estimated_minutes"] * 60),
                 )
 
+                if content.get("shared_video_id"):
+                    used_shared_video_ids.append(content["shared_video_id"])
+
             content_order += 1
+
+        if used_shared_video_ids:
+            SharedVideo.objects.filter(id__in=used_shared_video_ids).update(is_used=True)
 
         # 9. 최종 코스 응답
         course_serializer = CourseSerializer(course)
@@ -1228,6 +1238,7 @@ class CourseViewSet(viewsets.ViewSet):
 
         # 7. CourseContent 저장
         content_order = 1
+        used_shared_video_ids = []
 
         if activity_module:
             CourseContent.objects.create(
@@ -1308,7 +1319,13 @@ class CourseViewSet(viewsets.ViewSet):
                     duration_seconds=content.get("duration_seconds", content["estimated_minutes"] * 60),
                 )
 
+                if content.get("shared_video_id"):
+                    used_shared_video_ids.append(content["shared_video_id"])
+
             content_order += 1
+
+        if used_shared_video_ids:
+            SharedVideo.objects.filter(id__in=used_shared_video_ids).update(is_used=True)
 
         # 8. 새로운 추천 코스 반환
         course_serializer = CourseSerializer(course)
@@ -1318,6 +1335,90 @@ class CourseViewSet(viewsets.ViewSet):
                 "guest_uuid": str(user.guest_uuid),
                 "target_minutes": user.target_minutes,
                 "course": course_serializer.data,
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+class ShareVideoViewSet(viewsets.ViewSet):
+
+    # POST /main/share
+    def create(self, request):
+        serializer = ShareVideoSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        guest_uuid = serializer.validated_data["guest_uuid"]
+        url = serializer.validated_data["url"]
+
+        try:
+            user = User.objects.get(guest_uuid=guest_uuid)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "사용자 정보를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        video_id = extract_youtube_video_id(url)
+
+        if not video_id:
+            return Response(
+                {"detail": "유튜브 영상 링크만 공유할 수 있습니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 이미 공유했던 영상이면 새로 조회/분류하지 않고 기존 기록을 그대로 반환한다
+        existing = SharedVideo.objects.filter(user=user, video_id=video_id).first()
+
+        if existing:
+            return Response(
+                {
+                    "id": existing.id,
+                    "title": existing.title,
+                    "thumbnail_url": existing.thumbnail_url,
+                    "channel_name": existing.channel_name,
+                    "estimated_minutes": existing.estimated_minutes,
+                    "tags": existing.tags,
+                    "message": "이미 공유한 영상이에요.",
+                },
+                status=status.HTTP_201_CREATED
+            )
+
+        video_info = get_youtube_video_info(video_id)
+
+        if not video_info:
+            return Response(
+                {"detail": "영상 정보를 가져올 수 없습니다. 비공개거나 삭제된 영상일 수 있어요."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        tags = classify_shared_video_tag(video_info["title"], video_info["channel_name"])
+
+        shared_video = SharedVideo.objects.create(
+            user=user,
+            video_id=video_id,
+            url=url,
+            title=video_info["title"],
+            channel_name=video_info["channel_name"],
+            thumbnail_url=video_info["thumbnail_url"],
+            estimated_minutes=video_info["estimated_minutes"],
+            duration_seconds=video_info["duration_seconds"],
+            tags=tags,
+        )
+
+        if tags:
+            message = "코스 추천에 반영할게요."
+        else:
+            message = "회복 콘텐츠로 분류되지 않아 추천에는 반영되지 않아요."
+
+        return Response(
+            {
+                "id": shared_video.id,
+                "title": shared_video.title,
+                "thumbnail_url": shared_video.thumbnail_url,
+                "channel_name": shared_video.channel_name,
+                "estimated_minutes": shared_video.estimated_minutes,
+                "tags": shared_video.tags,
+                "message": message,
             },
             status=status.HTTP_201_CREATED
         )
