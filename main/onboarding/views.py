@@ -39,8 +39,8 @@ class OnboardingQuestionView(APIView):
                     "question": "요즘 어떤 웰니스에 마음이 가시나요?",
                     "options": [
                         {"option_id": 9, "content": "피부"},
-                        {"option_id": 10, "content": "몸"},
-                        {"option_id": 11, "content": "마음"},
+                        {"option_id": 10, "content": "마음"},
+                        {"option_id": 11, "content": "몸"},
                         {"option_id": 12, "content": "수면"}
                     ]
                 }
