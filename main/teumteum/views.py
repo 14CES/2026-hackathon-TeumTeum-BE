@@ -885,6 +885,7 @@ class CourseViewSet(viewsets.ViewSet):
             execution.used_seconds = execution.target_seconds
 
         # 5. 다음 콘텐츠부터 타이머 기준을 다시 잡는다 (status는 계속 in_progress로 유지)
+        execution.skipped_count += 1
         execution.started_at = now
         execution.save()
 
@@ -1007,8 +1008,13 @@ class CourseViewSet(viewsets.ViewSet):
 
         execution.used_seconds += elapsed_seconds
 
-        # 아직 설정 시간이 다 안 지났으면 완료 처리 거부 (중간에 그만두려면 stop을 써야 함)
-        if execution.used_seconds < execution.target_seconds:
+        # 시간을 다 채웠거나(OR), 마지막 콘텐츠까지 스킵했으면 완료 가능
+        total_contents = execution.course.contents.count()
+
+        time_filled = execution.used_seconds >= execution.target_seconds
+        reached_last_content = execution.skipped_count >= total_contents - 1
+
+        if not time_filled and not reached_last_content:
             return Response(
                 {"detail": "아직 코스 시간이 다 되지 않았습니다. 중간에 그만두려면 stop을 사용해주세요."},
                 status=status.HTTP_400_BAD_REQUEST
