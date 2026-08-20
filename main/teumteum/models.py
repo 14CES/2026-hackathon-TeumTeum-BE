@@ -152,6 +152,7 @@ class CourseExecution(models.Model):
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)
     used_seconds = models.IntegerField(default=0)      # 실행 중 누적 사용 시간 (초 단위)
+    skipped_count = models.IntegerField(default=0)
     status = models.CharField(max_length=30, default="in_progress")
     satisfaction = models.CharField(max_length=20, null=True, blank=True)  # good, neutral, bad
 
